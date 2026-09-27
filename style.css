@@ -199,3 +199,8 @@ header h1{font-family:"Playfair Display",Georgia,"Times New Roman",serif;font-we
 #solve.gated{display:none}
 .check{margin:0;padding:12px 12px 12px 34px;font-size:16px;line-height:1.55}
 .check li{margin:2px 0}
+/* ---- round 5: ⭐ always ---- */
+.always{display:block;background:#fff4d9;color:#7a4b00;border-radius:10px;padding:3px 9px;margin:2px 0 4px;font-size:13.5px;font-weight:800;line-height:1.35}
+.always.note{margin:0 0 8px;font-size:14px;text-align:center}
+.alw{display:block;font-size:12px;font-weight:800;color:#9a6200}
+.caps li:last-child{font-weight:800;color:#7a4b00}

@@ -432,6 +432,27 @@ function addPre(p, m) {
   return p;
 }
 
+/* ----- ⭐ Always: the formula never changes for a shape ----- */
+const ALW = {
+  tri: '⭐ Every triangle, always: A = ½ × b × h',
+  trap: '⭐ Every trapezoid, always: A = ½ × (b₁ + b₂) × h',
+  para: '⭐ Every parallelogram, always: A = b × h · P = add all 4 sides',
+  rect: '⭐ Every rectangle, always: A = l × w · P = 2 × (l + w)',
+  comp: '⭐ Weird shape, always: split into shapes you know, then add (or subtract)',
+  per: '⭐ Perimeter, always: add every outside side',
+};
+function alwaysKey(f, perim) {
+  f = String(lineF(f)).replace(/<[^>]+>/g, '');
+  if (/l × w|2 × \(l \+ w\)/.test(f)) return 'rect';
+  if (/big|box|A₁|cut-out/.test(f)) return 'comp';
+  if (perim || /^P\b/.test(f)) return 'per';
+  if (/b₁/.test(f)) return 'trap';
+  if (/½ × b × h/.test(f)) return 'tri';
+  if (/b × h/.test(f)) return 'para';
+  return null;
+}
+const alwaysHtml = k => k ? `<div class="always">${ALW[k]}</div>` : '';
+const SPOT_KEY = { 'slant used as height': 'para', 'forgot ½': 'tri', 'trapezoid forgot ½': 'trap', 'slant used as height (obtuse)': 'tri', 'missed a side': 'per', 'counted an inside line': 'per', 'grid diagonal counted as 1': 'per', 'height added to perimeter': 'per' };
 const MODES = [
   { id: 'sort', name: 'Area or Perimeter?', ico: '🤔', gen: 'sort' },
   { id: 'warm', name: 'Warm-up grid', ico: '🔲', gen: 'warm' },
@@ -540,7 +561,7 @@ function pickVoice() {
   SP.voice = us[0] || en[0] || null;
 }
 if (SP.ok) { pickVoice(); try { speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {} }
-const spoken = t => String(t).replace(/<[^>]+>/g, '').replace(/½/g, 'one half').replace(/×/g, ' times ').replace(/÷/g, ' divided by ').replace(/−/g, ' minus ').replace(/²/g, ' squared').replace(/₁/g, ' 1').replace(/₂/g, ' 2').replace(/\bft\b/g, 'feet').replace(/\bcm\b/g, 'centimeters').replace(/\bin\b(?= |\.|$)/g, 'inches').replace(/\bm\b/g, 'meters').replace(/\bP =/g, 'P equals').replace(/\bA =/g, 'A equals').replace(/=/g, ' equals ');
+const spoken = t => String(t).replace(/<[^>]+>/g, '').replace(/⭐/g, '').replace(/·/g, '.').replace(/½/g, 'one half').replace(/×/g, ' times ').replace(/÷/g, ' divided by ').replace(/−/g, ' minus ').replace(/²/g, ' squared').replace(/₁/g, ' 1').replace(/₂/g, ' 2').replace(/\bft\b/g, 'feet').replace(/\bcm\b/g, 'centimeters').replace(/\bin\b(?= |\.|$)/g, 'inches').replace(/\bm\b/g, 'meters').replace(/\bP =/g, 'P equals').replace(/\bA =/g, 'A equals').replace(/=/g, ' equals ');
 function say(text, onend) {
   let done = false; const fin = () => { if (!done) { done = true; onend && onend(); } };
   if (!SP.ok || !SP.on) { fin(); return; }
@@ -606,12 +627,15 @@ const LESSONS = [
       { c: 'For perimeter, find the missing sides: 6 − 3 = 3 and 8 − 4 = 4.', ms: 2200, act: (el, d) => d.miss(el) }],
     P: ['P = 4 + 3 + 4 + 3 + 8 + 6 = 28 ft', 'all 6 outside sides'], A: ['A = A₁ + A₂ = 24 + 12 = 36 ft²', 'or big − cut-out: 48 − 12 = 36'] },
 ];
+const LKEY = ['rect', 'para', 'para', 'tri', 'tri', 'trap', 'comp'];
+LESSONS.forEach((L, i) => { L.alw = LKEY[i]; L.steps.push({ c: ALW[LKEY[i]] + '.', ms: 2600 }); });
+const lessonAlways = L => ALW[L.alw] + (['rect', 'para'].includes(L.alw) ? '' : '. ' + ALW.per);
 function learn(i) {
   const L = LESSONS[i], d = L.make();
   const vbtn = SP.ok ? `<button class="vbtn ${SP.on ? 'on' : ''}" id="voice" aria-pressed="${SP.on}">${SP.on ? '🔊 Voice on' : '🔈 Read to me'}</button>` : `<span class="vbtn off" title="Voice not supported on this browser">🔇 no voice here</span>`;
   app.innerHTML = `<div class="lh">${L.t}</div><div class="card"><div id="stg">${d.svg}</div></div>
     <div class="caps card"><div class="caphead"><b>Steps</b>${vbtn}</div><ol id="caps">${L.steps.map((s, k) => `<li data-i="${k}">${s.c}</li>`).join('')}</ol></div>
-    <div class="worked card hide" id="worked">
+    <div class="worked card hide" id="worked">${alwaysHtml(L.alw)}${['rect', 'para'].includes(L.alw) ? '' : alwaysHtml('per')}
       <div class="wp"><span class="tagp">Perimeter</span> <b>${L.P[0]}</b><small>${L.P[1]}</small></div>
       <div class="wa"><span class="taga">Area</span> <b>${L.A[0]}</b><small>${L.A[1]}</small></div></div>
     <div class="dots">${LESSONS.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>
@@ -620,7 +644,7 @@ function learn(i) {
   const caps = [...document.querySelectorAll('#caps li')];
   let cur = 0; const t = TOKEN;
   const mark = k => { cur = k; caps.forEach((li, j) => { li.classList.toggle('now', j === k); li.classList.toggle('done', j < k); }); };
-  const finish = () => { caps.forEach(li => { li.classList.remove('now'); li.classList.add('done'); }); const w = $('#worked'); w.classList.remove('hide'); say(`Perimeter: ${L.P[0]}. Area: ${L.A[0]}.`); };
+  const finish = () => { caps.forEach(li => { li.classList.remove('now'); li.classList.add('done'); }); const w = $('#worked'); w.classList.remove('hide'); say(`Perimeter: ${L.P[0]}. Area: ${L.A[0]}. ${lessonAlways(L)}`); };
   const run = k => {
     if (t !== TOKEN) return; if (k >= L.steps.length) return finish();
     const s = L.steps[k]; mark(k); if (s.act) { try { s.act(el, d); } catch (e) {} }
@@ -630,7 +654,7 @@ function learn(i) {
   run(0); // step 0 starts inside the tap that opened the lesson (lets iOS Safari speak)
   const vb = $('#voice');
   if (vb) vb.onclick = () => { SP.on = !SP.on; S.voice = SP.on; save(); vb.classList.toggle('on', SP.on); vb.setAttribute('aria-pressed', SP.on); vb.textContent = SP.on ? '🔊 Voice on' : '🔈 Read to me';
-    if (SP.on) { pickVoice(); const w = $('#worked'); say(w.classList.contains('hide') ? L.steps[cur].c : `Perimeter: ${L.P[0]}. Area: ${L.A[0]}.`); } else hush(); };
+    if (SP.on) { pickVoice(); const w = $('#worked'); say(w.classList.contains('hide') ? L.steps[cur].c : `Perimeter: ${L.P[0]}. Area: ${L.A[0]}. ${lessonAlways(L)}`); } else hush(); };
   $('#again').onclick = () => go(learn, i);
   $('#prev').onclick = () => i && go(learn, i - 1);
   $('#next').onclick = () => i < LESSONS.length - 1 ? go(learn, i + 1) : go(home);
@@ -650,8 +674,8 @@ function practice(mode) {
   function writeBox(p, filled) {
     const [f, ...rest] = p.lines;
     const cls = p.perim ? 'p' : 'a';
-    if (filled && p.after) return `<div class="fline ${cls}">${lineF(f)}</div><div class="after" style="border:0;margin:0;padding:0">${p.after.map(x => `<div>${x}</div>`).join('')}</div>`;
-    return `${!filled && p.fadeStage ? `<div class="wnote">${p.fadeStage}</div>` : ''}<div class="fline ${cls}">${lineF(f)}</div>${rest.map((l, i) => `<div class="wl">${filled || i < (p.fade || 0) ? lineF(l) : lineB(l)}</div>`).join('')}${filled && p.note ? `<div class="wnote">${p.note}</div>` : ''}${filled && p.after ? `<div class="after">${p.after.map(x => `<div>${x}</div>`).join('')}</div>` : ''}`;
+    if (filled && p.after) return `${alwaysHtml(alwaysKey(f, p.perim))}<div class="fline ${cls}">${lineF(f)}</div><div class="after" style="border:0;margin:0;padding:0">${p.after.map(x => `<div>${x}</div>`).join('')}</div>`;
+    return `${!filled && p.fadeStage ? `<div class="wnote">${p.fadeStage}</div>` : ''}${alwaysHtml(alwaysKey(f, p.perim))}<div class="fline ${cls}">${lineF(f)}</div>${rest.map((l, i) => `<div class="wl">${filled || i < (p.fade || 0) ? lineF(l) : lineB(l)}</div>`).join('')}${filled && p.note ? `<div class="wnote">${p.note}</div>` : ''}${filled && p.after ? `<div class="after">${p.after.map(x => `<div>${x}</div>`).join('')}</div>` : ''}`;
   }
   function showP(p) {
     window.__p = p; // (used by automated tests only)
@@ -659,7 +683,8 @@ function practice(mode) {
     const head = isTest ? '🎯 Test' : MODES.find(x => x.id === mode).name;
     let body = `<div class="phead"><b>${head}</b><span>${q + 1}/${N}</span></div>${pips()}`;
     if (p.tap) {
-      const fixHtml = () => `<div class="fixbox"><div class="why">${p.why}</div>${p.fix.map(f => `<div class="fixl">✓ ${f}</div>`).join('')}</div>`;
+      const ak = p.spot ? (SPOT_KEY[p.tag] || (/perimeter/i.test(p.q) ? 'per' : 'para')) : ({ para: 'para', tri: 'tri', obtuse: 'tri', trap: 'trap' })[p.kind];
+      const fixHtml = () => `<div class="fixbox"><div class="why">${p.why}</div>${alwaysHtml(ak)}${p.fix.map(f => `<div class="fixl">✓ ${f}</div>`).join('')}</div>`;
       body += `<div class="card"><div id="stg">${p.d.svg}</div></div>`;
       if (p.spot) body += `<div class="q">${p.who}'s work <small>${p.q} Tap the step with the mistake.</small></div><div class="steps">${p.steps.map((st, i) => `<button class="stepb" data-c="${i}"><span class="sn">${i + 1}</span>${st}</button>`).join('')}</div>`;
       else body += `<div class="q">${p.q}<small>look for the square corner ⊾</small></div><div class="optg">${p.opts.map(o => `<button class="btn optb" data-c="${o.k}">${o.label}</button>`).join('')}</div>`;
@@ -747,12 +772,12 @@ function practice(mode) {
 /* ----- Cheat sheet & videos ----- */
 function cheat() {
   const it = (svg, h) => `<div class="item">${svg}<div>${h}</div></div>`;
-  app.innerHTML = `<div class="lh">🧠 Cheat Sheet</div><div class="card sheet">
-    ${it('<svg viewBox="0 0 110 76"><rect x="10" y="12" width="90" height="52" fill="#fcdbe6" stroke="#14a89c" stroke-width="6"/></svg>', '<span style="color:#0a7d74">P = fence around → ft</span><br><b>A = carpet inside → ft²</b>')}
-    ${it(MINI.para.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<b>A = b × h</b><br>slide the slice → rectangle')}
-    ${it(MINI.tri.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<b>A = ½ × b × h</b><br>half a parallelogram')}
-    ${it(MINI.trap.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<b>A = ½ (b₁ + b₂) h</b><br>add the parallels')}
-    ${it(MINI.comp.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<b>Split ➕ or cut ➖</b><br>add pieces or big − hole')}
+  app.innerHTML = `<div class="lh">🧠 Cheat Sheet</div><div class="always note">⭐ Only the numbers change. The formula for each shape never does.</div><div class="card sheet">
+    ${it('<svg viewBox="0 0 110 76"><rect x="10" y="12" width="90" height="52" fill="#fcdbe6" stroke="#14a89c" stroke-width="6"/></svg>', '<span class="alw">⭐ perimeter, always: add every outside side</span><span style="color:#0a7d74">P = fence around → ft</span><br><b>A = carpet inside → ft²</b>')}
+    ${it(MINI.para.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<span class="alw">⭐ every parallelogram, always</span><b>A = b × h</b><br>slide the slice → rectangle')}
+    ${it(MINI.tri.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<span class="alw">⭐ every triangle, always</span><b>A = ½ × b × h</b><br>half a parallelogram')}
+    ${it(MINI.trap.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<span class="alw">⭐ every trapezoid, always</span><b>A = ½ × (b₁ + b₂) × h</b><br>add the parallels')}
+    ${it(MINI.comp.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<span class="alw">⭐ weird shape, always</span><b>Split ➕ or cut ➖</b><br>add pieces or big − hole')}
     ${it('<svg viewBox="0 0 110 76"><polygon points="34,10 100,10 76,66 10,66" fill="#fcdbe6" stroke="#d99aae" stroke-width="2"/><line x1="34" y1="10" x2="34" y2="66" stroke="#6d28d9" stroke-width="3" stroke-dasharray="6 4"/><path d="M34,56 h10 v10" fill="none" stroke="#6d28d9" stroke-width="2"/></svg>', 'Height stands up ⊾ (dashed)<br><span style="color:#7d6b75">slant side → perimeter only</span>')}
     ${it('<svg viewBox="0 0 110 76"><text x="55" y="45" font-size="26" text-anchor="middle" fill="#c2416e">12 ft²</text></svg>', 'Answer = number + unit<br>area gets the little ²')}
   </div>
