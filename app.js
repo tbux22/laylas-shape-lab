@@ -52,40 +52,62 @@ function mapper(pts, m = 36, W = VW, H = VH) {
   return { s, X, Y, P: p => [X(p[0]), Y(p[1])] };
 }
 const ptsStr = a => a.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
-const txt = (x, y, t, cls = '') => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="lbl ${cls}" text-anchor="middle" dominant-baseline="middle" style="paint-order:stroke;stroke:${/\bw\b/.test(cls) ? '#c2416e' : '#fff'};stroke-width:${/\bw\b/.test(cls) ? 2 : 5}px;stroke-linejoin:round">${t}</text>`;
+const halo = cls => `paint-order:stroke;stroke:${/\bw\b/.test(cls) ? '#c2416e' : '#fff'};stroke-width:${/\bw\b/.test(cls) ? 2 : 5}px;stroke-linejoin:round`;
+// text; "\n" makes a second, smaller line
+function txt(x, y, t, cls = '', anchor = 'middle') {
+  const lines = String(t).split('\n');
+  if (lines.length === 1) return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="lbl ${cls}" text-anchor="${anchor}" dominant-baseline="middle" style="${halo(cls)}">${t}</text>`;
+  return `<text x="${x.toFixed(1)}" y="${(y - 7).toFixed(1)}" class="lbl ${cls}" text-anchor="${anchor}" dominant-baseline="middle" style="${halo(cls)}">${lines[0]}<tspan x="${x.toFixed(1)}" dy="15" class="sm">${lines[1]}</tspan></text>`;
+}
 function segLbl(a, b, t, cls, c, off) {
   const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
   let nx = -(b[1] - a[1]), ny = b[0] - a[0]; const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
   if ((mx - c[0]) * nx + (my - c[1]) * ny < 0) { nx = -nx; ny = -ny; }
-  const o = off || (14 + Math.abs(nx) * t.length * 3.6);
+  const multi = String(t).includes('\n');
+  if (Math.abs(nx) > 0.55) { // label beside a (mostly) vertical side: anchor at the edge so it never covers the shape
+    const o = off || 10; return txt(mx + nx * o, my + ny * o, t, cls, nx < 0 ? 'end' : 'start');
+  }
+  const o = off || (multi ? 22 : 15);
   return txt(mx + nx * o, my + ny * o, t, cls);
 }
 const cen = a => [a.reduce((s, p) => s + p[0], 0) / a.length, a.reduce((s, p) => s + p[1], 0) / a.length];
 function raMark(f, dx, up = -1) { const k = 10; return `<path class="ra" d="M${f[0] + dx * k},${f[1]} L${f[0] + dx * k},${f[1] + up * k} L${f[0]},${f[1] + up * k}"/>`; }
 const svgWrap = inner => `<svg class="stage" viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+// shrink/grow the viewBox so every label fits (no clipping), keeping shapes centred
+function fitSvg(host) {
+  const s = host && host.querySelector('svg.stage'); if (!s) return;
+  try { const b = s.getBBox(), p = 8; const x = Math.min(b.x - p, 0), y = Math.min(b.y - p, 0), X2 = Math.max(b.x + b.width + p, VW), Y2 = Math.max(b.y + b.height + p, VH);
+    s.setAttribute('viewBox', `${x.toFixed(1)} ${y.toFixed(1)} ${(X2 - x).toFixed(1)} ${(Y2 - y).toFixed(1)}`); } catch (e) {}
+}
 function trace(el) { // animate teal perimeter line
   el.querySelectorAll('.perim.anim').forEach(p => { p.style.transition = 'none'; p.style.strokeDasharray = '100'; p.style.strokeDashoffset = '100'; p.getBoundingClientRect(); p.style.transition = ''; p.classList.add('tr'); requestAnimationFrame(() => p.style.strokeDashoffset = '0'); });
 }
+const show = (el, sel) => el.querySelectorAll(sel).forEach(g => g.classList.remove('hide'));
+const SIDE = (v, u) => `side = ${fmt(v)} ${u}\n(perimeter only)`;
+const HGT = (v, u, perim) => perim ? `h = ${fmt(v)} ${u}\n(not a side)` : `h = ${fmt(v)} ${u}`;
 
-/* ---------- shape builders: return {svg, hint(el), extra} ---------- */
+/* ---------- shape builders: return {svg, hint(el), steps...} ---------- */
 function drawPara(b, h, o, u, opt = {}) {
   const shape = [[o, 0], [o + b, 0], [b, h], [0, h]];
-  const M = mapper(shape.concat([[o + b + (opt.room ? 0.01 : 0), 0]])), P = shape.map(M.P), c = cen(P);
+  const M = mapper(shape), P = shape.map(M.P), c = cen(P);
   const top = M.P([o, 0]), foot = M.P([o, h]);
   const piece = [[0, h], [o, h], [o, 0]].map(M.P);
   const rest = [[o, 0], [o + b, 0], [b, h], [o, h]].map(M.P), rect = [[o, 0], [o + b, 0], [o + b, h], [o, h]].map(M.P);
   let s = `<polygon class="fillA" points="${ptsStr(rest)}"/>`;
   s += `<polygon class="rectg fade hide" points="${ptsStr(rect)}" fill="none" stroke="#c2416e" stroke-width="3" stroke-dasharray="7 5"/>`;
-  s += `<g class="slide" data-dx="${(b * M.s).toFixed(1)}"><polygon points="${ptsStr(piece)}" fill="#f6a9c4"/></g>`;
+  s += `<g class="slide" data-dx="${(b * M.s).toFixed(1)}"><polygon class="piece" points="${ptsStr(piece)}" fill="#f6a9c4" style="transition:opacity .3s"/></g>`;
   s += `<polygon class="pedge ${opt.perim ? 'perim anim' : 'edge'}" pathLength="100" points="${ptsStr(P)}" style="transition:opacity .6s"/>`;
-  if (!opt.noH) s += `<line class="hline" x1="${top[0]}" y1="${top[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(top[0] + 22 + String(h).length * 3, (top[1] + foot[1]) / 2, `${fmt(h)} ${u}`, 'h');
-  s += segLbl(P[2], P[3], `${fmt(b)} ${u}`, '', c);
-  if (opt.slant) s += segLbl(P[3], P[0], `${fmt(opt.slant)} ${u}`, 's', c);
-  if (opt.showTop) s += segLbl(P[0], P[1], `${fmt(b)} ${u}`, opt.perim ? 'p' : '', c);
+  if (!opt.noH) s += `<line class="hline" x1="${top[0]}" y1="${top[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(top[0] + 8, (top[1] + foot[1]) / 2, opt.hText || HGT(h, u, opt.perim), 'h', 'start');
+  s += segLbl(P[2], P[3], `b = ${fmt(b)} ${u}`, '', c);
+  if (opt.slant) s += segLbl(P[3], P[0], opt.perim ? `side = ${fmt(opt.slant)} ${u}` : SIDE(opt.slant, u), 's', c);
+  if (opt.showTop) s += segLbl(P[0], P[1], `${fmt(b)} ${u}`, '', c);
   if (opt.showRight && opt.slant) s += segLbl(P[1], P[2], `${fmt(opt.slant)} ${u}`, 's', c);
   return {
     svg: svgWrap(s),
-    hint(el) { const g = el.querySelector('.slide'); g.style.transform = 'translate(0px,0px)'; g.getBoundingClientRect(); later(250, () => { g.style.transform = `translate(${g.dataset.dx}px,0px)`; el.querySelector('.pedge').style.opacity = '.25'; }); later(1500, () => el.querySelector('.rectg').classList.remove('hide')); }
+    cut(el) { const pc = el.querySelector('.piece'); if (pc && pc.animate && !RM) pc.animate([{ opacity: 1 }, { opacity: .25 }, { opacity: 1 }, { opacity: .25 }, { opacity: 1 }], { duration: 1200 }); },
+    slide(el) { const g = el.querySelector('.slide'); g.style.transform = `translate(${g.dataset.dx}px,0px)`; el.querySelector('.pedge').style.opacity = '.25'; },
+    rect(el) { show(el, '.rectg'); },
+    hint(el) { const g = el.querySelector('.slide'); g.style.transform = 'translate(0px,0px)'; g.getBoundingClientRect(); later(250, () => this.slide(el)); later(1500, () => this.rect(el)); }
   };
 }
 function drawTri(b, h, a, u, opt = {}) {
@@ -99,14 +121,20 @@ function drawTri(b, h, a, u, opt = {}) {
   s += `<g class="copy fade hide" style="transform-box:view-box;transform-origin:${mid[0].toFixed(1)}px ${mid[1].toFixed(1)}px;transform:rotate(-180deg);transition:transform 1.3s ease, opacity .5s"><polygon points="${ptsStr(C)}" fill="#fdeef3" stroke="#f6a9c4" stroke-width="2.5" stroke-dasharray="6 5"/></g>`;
   s += `<polygon class="fillA" points="${ptsStr(P)}"/>`;
   s += `<polygon class="${opt.perim ? 'perim anim' : 'edge'}" pathLength="100" points="${ptsStr(P)}"/>`;
+  s += `<g class="extg${opt.extHidden ? ' fade hide' : ''}">`;
   if (a < 0) s += `<line class="ext" x1="${foot[0]}" y1="${foot[1]}" x2="${P[2][0]}" y2="${P[2][1]}"/>`;
   if (a > b) s += `<line class="ext" x1="${P[1][0]}" y1="${P[1][1]}" x2="${foot[0]}" y2="${foot[1]}"/>`;
-  if (!opt.noH) { s += `<line class="hline" x1="${top[0]}" y1="${top[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, a >= b ? -1 : 1);
-    const hx = (a <= 0 || a >= b) ? (a >= b ? top[0] + 26 : top[0] - 26) : top[0] + 24; s += txt(hx, (top[1] + foot[1]) / 2, `${fmt(h)} ${u}`, 'h'); }
-  s += segLbl(P[1], P[2], `${fmt(b)} ${u}`, '', c, 16);
-  if (opt.sL) s += segLbl(P[2], P[0], `${fmt(opt.sL)} ${u}`, 's', c);
-  if (opt.sR) s += segLbl(P[0], P[1], `${fmt(opt.sR)} ${u}`, 's', c);
-  return { svg: svgWrap(s), hint(el) { const g = el.querySelector('.copy'); later(200, () => { g.classList.remove('hide'); g.style.transform = 'rotate(0deg)'; }); } };
+  s += '</g>';
+  if (!opt.noH) { s += `<g class="hg${opt.hHidden ? ' fade hide' : ''}"><line class="hline" x1="${top[0]}" y1="${top[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, a >= b ? -1 : 1);
+    const ht = opt.hText || HGT(h, u, opt.perim);
+    const hy = top[1] + (foot[1] - top[1]) * (a > 0 && a < b ? .68 : .5);
+    const leftRoom = a > 0 && a < b && a > (b - a) * 1.15;
+    if (a <= 0 || leftRoom) s += txt(top[0] - 8, hy, ht, 'h', 'end'); else s += txt(top[0] + 8, hy, ht, 'h', 'start');
+    s += '</g>'; }
+  s += segLbl(P[1], P[2], `b = ${fmt(b)} ${u}`, '', c, 16);
+  if (opt.sL) s += segLbl(P[2], P[0], opt.perim ? `side = ${fmt(opt.sL)} ${u}` : SIDE(opt.sL, u), 's', c);
+  if (opt.sR) s += segLbl(P[0], P[1], opt.perim ? `side = ${fmt(opt.sR)} ${u}` : SIDE(opt.sR, u), 's', c);
+  return { svg: svgWrap(s), copy(el) { const g = el.querySelector('.copy'); g.classList.remove('hide'); g.style.transform = 'rotate(0deg)'; }, hint(el) { later(200, () => this.copy(el)); } };
 }
 function drawTrap(b1, b2, h, x, u, opt = {}) {
   const shape = [[x, 0], [x + b2, 0], [b1, h], [0, h]];
@@ -117,12 +145,12 @@ function drawTrap(b1, b2, h, x, u, opt = {}) {
   let s = `<g class="copy fade hide" style="transform-box:view-box;transform-origin:${mid[0].toFixed(1)}px ${mid[1].toFixed(1)}px;transform:rotate(-180deg);transition:transform 1.3s ease, opacity .5s"><polygon points="${ptsStr(C)}" fill="#fdeef3" stroke="#f6a9c4" stroke-width="2.5" stroke-dasharray="6 5"/>${segLbl(C[0], C[1], fmt(b2), 's', cen(C), 14)}</g>`;
   s += `<polygon class="fillA" points="${ptsStr(P)}"/>`;
   s += `<polygon class="${opt.perim ? 'perim anim' : 'edge'}" pathLength="100" points="${ptsStr(P)}"/>`;
-  if (!opt.noH) s += `<line class="hline" x1="${top[0]}" y1="${top[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(top[0] + 24, (top[1] + foot[1]) / 2, `${fmt(h)} ${u}`, 'h');
-  s += segLbl(P[2], P[3], `${fmt(b1)} ${u}`, '', c, 16);
-  s += segLbl(P[0], P[1], `${fmt(b2)} ${u}`, '', c, 14);
-  if (opt.l1) s += segLbl(P[3], P[0], `${fmt(opt.l1)} ${u}`, 's', c);
-  if (opt.l2) s += segLbl(P[1], P[2], `${fmt(opt.l2)} ${u}`, 's', c);
-  return { svg: svgWrap(s), hint(el) { const g = el.querySelector('.copy'); later(200, () => { g.classList.remove('hide'); g.style.transform = 'rotate(0deg)'; }); } };
+  if (!opt.noH) s += `<line class="hline" x1="${top[0]}" y1="${top[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(top[0] + 8, (top[1] + foot[1]) / 2, HGT(h, u, opt.perim), 'h', 'start');
+  s += segLbl(P[2], P[3], `b₁ = ${fmt(b1)} ${u}`, '', c, 16);
+  s += segLbl(P[0], P[1], `b₂ = ${fmt(b2)} ${u}`, '', c, 14);
+  if (opt.l1) s += segLbl(P[3], P[0], opt.perim ? `side = ${fmt(opt.l1)} ${u}` : SIDE(opt.l1, u), 's', c);
+  if (opt.l2) s += segLbl(P[1], P[2], opt.perim ? `side = ${fmt(opt.l2)} ${u}` : SIDE(opt.l2, u), 's', c);
+  return { svg: svgWrap(s), copy(el) { const g = el.querySelector('.copy'); g.classList.remove('hide'); g.style.transform = 'rotate(0deg)'; }, hint(el) { later(200, () => this.copy(el)); } };
 }
 // L-shape: W x H with notch cw x ch removed from top-right
 function drawL(W, H, cw, ch, u, opt = {}) {
@@ -130,16 +158,18 @@ function drawL(W, H, cw, ch, u, opt = {}) {
   const M = mapper(sh), P = sh.map(M.P), c = cen(P);
   const A1 = [[0, 0], [W - cw, 0], [W - cw, H], [0, H]].map(M.P), A2 = [[W - cw, ch], [W, ch], [W, H], [W - cw, H]].map(M.P);
   const notch = [[W - cw, 0], [W, 0], [W, ch], [W - cw, ch]].map(M.P);
+  const c1 = cen(A1), c2 = cen(A2), w2 = A2[1][0] - A2[0][0];
   let s = `<polygon class="fillA" points="${ptsStr(P)}"/>`;
-  s += `<g class="pieces fade hide"><polygon points="${ptsStr(A1)}" fill="#f6a9c4"/><polygon points="${ptsStr(A2)}" fill="#fcdbe6" stroke="#c2416e" stroke-width="2" stroke-dasharray="5 4"/>${txt(cen(A1)[0], cen(A1)[1], fmt((W - cw) * H), 'big')}${txt(cen(A2)[0], cen(A2)[1], fmt(cw * (H - ch)), 'big')}</g>`;
+  s += `<g class="pc1 fade hide"><polygon points="${ptsStr(A1)}" fill="#f6a9c4"/>${txt(c1[0], c1[1] + 12, fmt((W - cw) * H), 'big')}</g>`;
+  s += `<g class="pc2 fade hide"><polygon points="${ptsStr(A2)}" fill="#fcdbe6"/>${txt(c2[0], c2[1] + 12, fmt(cw * (H - ch)), 'big')}</g>`;
+  if (opt.pieces) s += `<line x1="${A2[0][0]}" y1="${A2[0][1]}" x2="${A2[3][0]}" y2="${A2[3][1]}" stroke="#c2416e" stroke-width="2" stroke-dasharray="5 4"/>` + txt(c1[0], c1[1] - 10, 'Piece 1', 'pc') + txt(c2[0], c2[1] - (w2 < 62 ? 16 : 10), w2 < 62 ? 'Piece\n2' : 'Piece 2', 'pc');
   if (opt.showNotch) s += `<polygon class="nb fade hide" points="${ptsStr(notch)}" fill="none" stroke="#bba" stroke-width="2" stroke-dasharray="5 5"/>`;
   s += `<polygon class="${opt.perim ? 'perim anim' : 'edge'}" pathLength="100" points="${ptsStr(P)}"/>`;
   const L = opt.labels || { 0: W - cw, 3: H - ch, 4: W, 5: H };
-  // side i goes P[i] -> P[i+1]
-  const names = opt.names || {};
-  Object.keys(L).forEach(i => { i = +i; const t = L[i] === '?' ? '?' : `${fmt(L[i])} ${u}`; s += segLbl(P[i], P[(i + 1) % 6], t, L[i] === '?' ? 'h big' : (names[i] || ''), c); });
-  if (opt.missing) opt.missing.forEach(([i, v]) => { s += `<g class="miss fade hide">${segLbl(P[i], P[(i + 1) % 6], fmt(v), 'p', c)}</g>`; });
-  return { svg: svgWrap(s), hint(el) { later(200, () => el.querySelectorAll('.pieces,.miss,.nb').forEach(g => g.classList.remove('hide'))); if (opt.perim) trace(el); } };
+  Object.keys(L).forEach(i => { i = +i; const q = L[i] === '?'; s += segLbl(P[i], P[(i + 1) % 6], q ? '?' : `${fmt(L[i])} ${u}`, q ? 'h big' : '', c); });
+  if (opt.missing) opt.missing.forEach(([i, v]) => { s += `<g class="miss fade hide">${segLbl(P[i], P[(i + 1) % 6], `${fmt(v)} ${u}`, 'p', c, 26)}</g>`; });
+  return { svg: svgWrap(s), p1(el) { show(el, '.pc1'); }, p2(el) { show(el, '.pc2'); }, miss(el) { show(el, '.miss,.nb'); },
+    hint(el) { later(200, () => show(el, '.pc1,.pc2,.miss,.nb')); if (opt.perim) trace(el); } };
 }
 // U-shape: W x H with notch of width q, depth d cut from top middle
 function drawU(W, H, q, d, u) {
@@ -147,44 +177,42 @@ function drawU(W, H, q, d, u) {
   const sh = [[0, 0], [p, 0], [p, d], [p + q, d], [p + q, 0], [W, 0], [W, H], [0, H]];
   const M = mapper([[0, 0], [W, H]]), P = sh.map(M.P), c = cen([[0, 0], [W, 0], [W, H], [0, H]].map(M.P));
   const big = [[0, 0], [W, 0], [W, H], [0, H]].map(M.P), cut = [[p, 0], [p + q, 0], [p + q, d], [p, d]].map(M.P);
-  let s = `<g class="bigr fade hide"><polygon points="${ptsStr(big)}" fill="#fdeef3"/></g><polygon class="fillA" points="${ptsStr(P)}"/>`;
-  s += `<g class="cut fade hide"><polygon points="${ptsStr(cut)}" fill="#fff" stroke="#e11d48" stroke-width="2.5" stroke-dasharray="6 4"/>${txt(cen(cut)[0], cen(cut)[1], '−' + fmt(q * d), 'big')}</g>`;
+  let s = `<polygon points="${ptsStr(cut)}" fill="#fff" stroke="#be123c" stroke-width="2" stroke-dasharray="6 4"/>`;
+  s += `<g class="bigr fade hide"><polygon points="${ptsStr(big)}" fill="#fdeef3"/></g><polygon class="fillA" points="${ptsStr(P)}"/>`;
   s += `<polygon class="edge" points="${ptsStr(P)}"/>`;
-  s += segLbl(P[6], P[7], `${fmt(W)} ${u}`, '', c, 16) + segLbl(P[7], P[0], `${fmt(H)} ${u}`, '', c) + txt((cut[0][0] + cut[1][0]) / 2, cut[0][1] - 13, `${fmt(q)}`, '') + txt(cut[1][0] + 16, (cut[1][1] + cut[2][1]) / 2, fmt(d), 'h');
-  s += `<g class="bigl fade hide">${txt(c[0], c[1] + 18, fmt(W * H), 'big')}</g>`;
-  return { svg: svgWrap(s), hint(el) { later(150, () => el.querySelector('.bigr').classList.remove('hide')); later(900, () => { el.querySelector('.bigl').classList.remove('hide'); el.querySelector('.cut').classList.remove('hide'); }); } };
+  s += txt(c[0], (cut[2][1] + big[2][1]) / 2, 'Big rectangle', 'pc') + txt(cen(cut)[0], cut[0][1] - 12, 'cut-out', 'pc cut');
+  s += segLbl(P[6], P[7], `${fmt(W)} ${u}`, '', c, 16) + segLbl(P[7], P[0], `${fmt(H)} ${u}`, '', c) + txt(cen(cut)[0], cen(cut)[1] - 2, `${fmt(q)} × ${fmt(d)}`, 'h');
+  s += `<g class="bigl fade hide">${txt(c[0], (cut[2][1] + big[2][1]) / 2 + 22, fmt(W * H) + ' − ' + fmt(q * d), 'big')}</g>`;
+  return { svg: svgWrap(s), hint(el) { later(150, () => show(el, '.bigr')); later(900, () => show(el, '.bigl')); } };
 }
 // house: rectangle W x H + triangle roof height r
 function drawHouse(W, H, r, u) {
   const sh = [[0, r], [W / 2, 0], [W, r], [W, r + H], [0, r + H]];
   const M = mapper(sh), P = sh.map(M.P), c = cen(P);
   const rect = [[0, r], [W, r], [W, r + H], [0, r + H]].map(M.P), tri = [[0, r], [W / 2, 0], [W, r]].map(M.P);
-  const apex = M.P([W / 2, 0]), foot = M.P([W / 2, r]);
+  const apex = M.P([W / 2, 0]), foot = M.P([W / 2, r]), cr = cen(rect), ct = cen(tri);
   let s = `<polygon class="fillA" points="${ptsStr(P)}"/>`;
-  s += `<g class="pieces fade hide"><polygon points="${ptsStr(rect)}" fill="#f6a9c4"/><polygon points="${ptsStr(tri)}" fill="#fcdbe6"/>${txt(cen(rect)[0], cen(rect)[1] + 6, fmt(W * H), 'big')}</g>`;
+  s += `<g class="pieces fade hide"><polygon points="${ptsStr(rect)}" fill="#f6a9c4"/><polygon points="${ptsStr(tri)}" fill="#fcdbe6"/>${txt(cr[0], cr[1] + 14, fmt(W * H), 'big')}${txt(tri[2][0] + 10, (tri[0][1] + tri[1][1]) / 2, '= ' + fmt(W * r / 2), 'pc', 'start')}</g>`;
   s += `<polygon class="edge" points="${ptsStr(P)}"/>`;
-  s += `<line class="hline" x1="${apex[0]}" y1="${apex[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(apex[0] + 16, (apex[1] + foot[1]) / 2 + 2, fmt(r), 'h');
-  s += `<line x1="${rect[0][0]}" y1="${rect[0][1]}" x2="${rect[1][0]}" y2="${rect[1][1]}" stroke="#d99aae" stroke-width="2" stroke-dasharray="4 4"/>`;
+  s += `<line class="hline" x1="${apex[0]}" y1="${apex[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(apex[0] + 8, (apex[1] + foot[1]) / 2 + 3, `h = ${fmt(r)} ${u}`, 'h', 'start');
+  s += `<line x1="${rect[0][0]}" y1="${rect[0][1]}" x2="${rect[1][0]}" y2="${rect[1][1]}" stroke="#c2416e" stroke-width="2" stroke-dasharray="4 4"/>`;
+  s += txt(cr[0], cr[1] - 8, 'Piece 1', 'pc') + txt(tri[0][0] - 8, (tri[0][1] + tri[1][1]) / 2, 'Piece 2', 'pc', 'end');
   s += segLbl(P[3], P[4], `${fmt(W)} ${u}`, '', c, 16) + segLbl(P[4], P[0], `${fmt(H)} ${u}`, '', c);
-  s += `<g class="pieces2 fade hide">${txt(cen(tri)[0] - Math.max(24, (tri[2][0] - tri[0][0]) / 5), cen(tri)[1] + 6, fmt(W * r / 2), '')}</g>`;
-  return { svg: svgWrap(s), hint(el) { later(200, () => el.querySelector('.pieces').classList.remove('hide')); later(900, () => el.querySelector('.pieces2').classList.remove('hide')); } };
+  return { svg: svgWrap(s), hint(el) { later(200, () => show(el, '.pieces')); } };
 }
-// grid rectangle for warm-up with counting
-function drawGrid(w, h, mode) {
-  const M = mapper([[0, 0], [w, h]], 30);
+// grid rectangle for warm-up with counting; l and w labelled
+function drawGrid(w, h, mode, u = '') {
+  const M = mapper([[0, 0], [w, h]], 40);
   let s = '';
   for (let i = 0; i <= w; i++) s += `<line x1="${M.X(i)}" y1="${M.Y(0)}" x2="${M.X(i)}" y2="${M.Y(h)}" stroke="#efdcd6" stroke-width="1.5"/>`;
   for (let j = 0; j <= h; j++) s += `<line x1="${M.X(0)}" y1="${M.Y(j)}" x2="${M.X(w)}" y2="${M.Y(j)}" stroke="#efdcd6" stroke-width="1.5"/>`;
   s += `<g class="tiles"></g><rect x="${M.X(0)}" y="${M.Y(0)}" width="${w * M.s}" height="${h * M.s}" class="${mode === 'P' ? 'perim anim' : 'edge'}" pathLength="100"/><g class="cnt"></g>`;
-  return {
-    svg: svgWrap(s),
-    hint(el) {
-      const g = el.querySelector(mode === 'P' ? '.cnt' : '.tiles'); g.innerHTML = '';
-      if (mode === 'A') { let k = 0; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const n = ++k; later(n * 110, () => { g.insertAdjacentHTML('beforeend', `<g class="pop" style="transform-box:fill-box;transform-origin:center"><rect class="tileSq" x="${M.X(i)}" y="${M.Y(j)}" width="${M.s}" height="${M.s}"/>${txt(M.X(i + .5), M.Y(j + .5), n, 'w')}</g>`); }); } }
-      else { trace(el); const segs = []; for (let i = 0; i < w; i++) segs.push([M.X(i + .5), M.Y(0) - 14]); for (let j = 0; j < h; j++) segs.push([M.X(w) + 15, M.Y(j + .5)]); for (let i = w - 1; i >= 0; i--) segs.push([M.X(i + .5), M.Y(h) + 15]); for (let j = h - 1; j >= 0; j--) segs.push([M.X(0) - 15, M.Y(j + .5)]);
-        segs.forEach((p, k) => later(150 + k * (2400 / segs.length), () => g.insertAdjacentHTML('beforeend', `<g class="pop">${txt(p[0], p[1], k + 1, 'p')}</g>`))); }
-    }
-  };
+  const uu = u ? ' ' + u : '';
+  s += txt(M.X(w / 2), M.Y(h) + 36, `l = ${w}${uu}`, 'dim') + txt(M.X(0) - 30, M.Y(h / 2), `w = ${h}${uu}`, 'dim', 'end');
+  const tiles = el => { const g = el.querySelector('.tiles'); g.innerHTML = ''; let k = 0; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const n = ++k; later(n * (RM ? 0 : 110), () => { g.insertAdjacentHTML('beforeend', `<g class="pop" style="transform-box:fill-box;transform-origin:center"><rect class="tileSq" x="${M.X(i)}" y="${M.Y(j)}" width="${M.s}" height="${M.s}"/>${txt(M.X(i + .5), M.Y(j + .5), n, 'w')}</g>`); }); } };
+  const count = el => { const g = el.querySelector('.cnt'); g.innerHTML = ''; trace(el); const segs = []; for (let i = 0; i < w; i++) segs.push([M.X(i + .5), M.Y(0) - 14]); for (let j = 0; j < h; j++) segs.push([M.X(w) + 15, M.Y(j + .5)]); for (let i = w - 1; i >= 0; i--) segs.push([M.X(i + .5), M.Y(h) + 15]); for (let j = h - 1; j >= 0; j--) segs.push([M.X(0) - 15, M.Y(j + .5)]);
+    segs.forEach((p, k) => later(RM ? 0 : 150 + k * (2400 / segs.length), () => g.insertAdjacentHTML('beforeend', `<g class="pop">${txt(p[0], p[1], k + 1, 'p')}</g>`))); };
+  return { svg: svgWrap(s), tiles, count, hint(el) { mode === 'A' ? tiles(el) : count(el); } };
 }
 // coordinate plane polygon (6.G.A.3)
 function drawCoord(pts, labels) {
@@ -195,125 +223,128 @@ function drawCoord(pts, labels) {
   for (let i = 0; i <= n; i++) { g += `<line x1="${X(i)}" y1="${Y(0)}" x2="${X(i)}" y2="${Y(n)}" stroke="${i ? '#f1e4e0' : '#7a5f6b'}" stroke-width="${i ? 1 : 2}"/><line x1="${X(0)}" y1="${Y(i)}" x2="${X(n)}" y2="${Y(i)}" stroke="${i ? '#f1e4e0' : '#7a5f6b'}" stroke-width="${i ? 1 : 2}"/>`; if (n <= 8 || i % 2 === 0) g += `<text x="${X(i)}" y="${Y(0) + 12}" font-size="10" text-anchor="middle" fill="#7a5f6b">${i}</text><text x="${X(0) - 8}" y="${Y(i) + 3}" font-size="10" text-anchor="middle" fill="#7a5f6b">${i}</text>`; }
   const P = pts.map(p => [X(p[0]), Y(p[1])]);
   g += `<polygon class="fillA" points="${ptsStr(P)}" opacity=".85"/><polygon class="edge" points="${ptsStr(P)}"/>`;
-  P.forEach((p, i) => { g += `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="#c2416e"/>`; const c = cen(P); const dx = p[0] < c[0] ? -1 : 1, dy = p[1] < c[1] ? -1 : 1; g += txt(p[0] + dx * 26, p[1] + dy * 10, `(${pts[i][0]},${pts[i][1]})`, ''); });
-  g += `<g class="lens fade hide">${labels.map(l => txt(l[0], l[1], l[2], 'p big')).join('')}</g>`;
-  return { svg: svgWrap(g.replace(/class="lbl "/g, 'class="lbl" font-size="13"')), X, Y, hint(el) { later(200, () => el.querySelector('.lens').classList.remove('hide')); } };
+  P.forEach((p, i) => { g += `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="#c2416e"/>`; const c = cen(P); const dx = p[0] < c[0] ? -1 : 1, dy = p[1] < c[1] ? -1 : 1; g += txt(p[0] + dx * 26, p[1] + dy * 10, `(${pts[i][0]},${pts[i][1]})`, 'co'); });
+  g += `<g class="lens">${labels.map(l => txt(l[0], l[1], l[2], 'p', l[3] || 'middle')).join('')}</g>`;
+  return { svg: svgWrap(g), X, Y, hint() {} };
 }
 
 /* ---------- problem generators ---------- */
 const TRI_SETS = [ // a, b, h, left side, right side (exact whole-number sides)
   [3, 6, 4, 5, 5], [5, 14, 12, 13, 15], [9, 14, 12, 15, 13], [6, 12, 8, 10, 10], [5, 21, 12, 13, 20], [9, 25, 12, 15, 20],
-  [-5, 4, 12, 13, 15], [-9, 7, 12, 15, 20], [-3, 3, 4, 5, 7.21], [8, 16, 6, 10, 10]
-].filter(t => Number.isInteger(t[4]));
+  [-5, 4, 12, 13, 15], [-9, 7, 12, 15, 20], [8, 16, 6, 10, 10]
+];
 const TRIPLES = [[3, 4, 5], [4, 3, 5], [6, 8, 10], [8, 6, 10], [5, 12, 13], [9, 12, 15]]; // [offset, height, slant]
+// T`A = ${b} × ${h}` -> {f: filled line, b: same line with blanks}
+const T = (strs, ...vals) => ({ f: strs.reduce((a, s, i) => a + s + (i < vals.length ? (typeof vals[i] === 'number' ? fmt(vals[i]) : vals[i]) : ''), ''), b: strs.reduce((a, s, i) => a + s + (i < vals.length ? (typeof vals[i] === 'number' ? '__' : vals[i]) : ''), '') });
+const lineF = l => typeof l === 'string' ? l : l.f, lineB = l => typeof l === 'string' ? l : l.b;
 
-function wr(lines) { return lines.join('<br>'); }
 const GEN = {
   warm(lv) {
     const w = R(2, lv > 1 ? 7 : 5), h = R(2, lv > 1 ? 5 : 4), mode = Math.random() < .5 ? 'A' : 'P';
     const d = drawGrid(w, h, mode);
+    const aL = T`A = ${w} × ${h} = ${w * h} units²`, pL = T`P = 2 × (${w} + ${h}) = ${2 * (w + h)} units`;
+    const after = [`<b>A = l × w</b> = ${w} × ${h} = ${w * h} units²`, `<span class="p">P = 2 × (l + w)</span> = 2 × (${w} + ${h}) = ${2 * (w + h)} units`];
     return mode === 'A'
-      ? { d, ask: 'A = ?', sub: 'count the squares', ans: w * h, unit: 'units²', formula: wr(['<b>A</b> = rows × columns', `<b>A</b> = __ × __ = __ units²`]), sol: `A = ${h} × ${w} = ${w * h} units²` }
-      : { d, ask: 'P = ?', sub: 'count the edges', ans: 2 * (w + h), unit: 'units', formula: wr(['<span class="p">P</span> = side + side + side + side', `<span class="p">P</span> = __ + __ + __ + __ = __ units`]), sol: `P = ${w} + ${h} + ${w} + ${h} = ${2 * (w + h)} units` };
+      ? { d, ask: 'A = ?', sub: 'count the squares (or l × w)', ans: w * h, unit: 'units²', lines: ['A = l × w', aL], after }
+      : { d, ask: 'P = ?', sub: 'count the edges (or add all sides)', ans: 2 * (w + h), unit: 'units', perim: true, lines: ['P = 2 × (l + w)  or add all 4 sides', pL], after };
   },
   para(lv) {
     const u = pick(U), t = pick(TRIPLES);
-    const k = lv >= 2 && Math.random() < .4 ? 1 : 1;
-    let b = R(Math.max(t[0] + 2, 4), Math.max(t[0] + 6, lv > 1 ? 14 : 10)), h = t[1], o = t[0], sl = t[2];
-    if (lv === 3 && Math.random() < .35) b = b + 0.5;
+    let b = R(t[0] + 2, t[0] + (lv > 1 ? 10 : 6)); const h = t[1], o = t[0], sl = t[2];
+    if (lv === 3 && Math.random() < .35) b += 0.5;
     const d = drawPara(b, h, o, u, { slant: sl });
-    return { d, ask: 'A = ?', ans: b * h, unit: u + '²', formula: wr(['<b>A</b> = b × h', '<b>A</b> = __ × __', '<b>A</b> = ____ ' + u + '²', '⚠️ h = dashed ⊾, not the slant']), sol: `A = ${fmt(b)} × ${h} = ${fmt(b * h)} ${u}²  (not × ${sl})` };
+    return { d, ask: 'A = ?', ans: b * h, unit: u + '²', lines: ['A = b × h', T`A = ${b} × ${h} = ${b * h} ${u}²`], note: `The slanted side (${sl} ${u}) is only for perimeter.` };
   },
   tri(lv) {
     const u = pick(U); let b, h, a, sL = 0, sR = 0, kind;
-    if (Math.random() < .5) { const t = pick(TRI_SETS); [a, b, h, sL, sR] = t; kind = a < 0 ? 'obtuse' : 'acute'; }
+    if (Math.random() < .5) { [a, b, h, sL, sR] = pick(TRI_SETS); kind = a < 0 ? 'obtuse' : 'acute'; }
     else { kind = pick(['right', 'acute', 'obtuse']); b = R(3, lv > 1 ? 14 : 10); h = R(2, lv > 1 ? 12 : 8);
       if (lv < 3 && (b * h) % 2) b++;
       a = kind === 'right' ? 0 : kind === 'acute' ? R(1, b - 1) : (Math.random() < .5 ? -R(2, 3) : b + R(2, 3)); }
     const d = drawTri(b, h, a, u, { sL, sR });
-    return { d, ask: 'A = ?', sub: kind === 'obtuse' ? 'h is outside!' : '', ans: b * h / 2, unit: u + '²', formula: wr(['<b>A</b> = ½ × b × h', '<b>A</b> = ½ × __ × __', '<b>A</b> = ____ ' + u + '²', '(or b × h ÷ 2)']), sol: `A = ½ × ${fmt(b)} × ${h} = ${fmt(b * h)} ÷ 2 = ${fmt(b * h / 2)} ${u}²` };
+    return { d, ask: 'A = ?', sub: kind === 'obtuse' ? 'the height is outside — still use it' : '', ans: b * h / 2, unit: u + '²', lines: ['A = ½ × b × h', T`A = ½ × ${b} × ${h} = ${b * h / 2} ${u}²`] };
   },
   trap(lv) {
     const u = pick(U); let b1, b2, h, x, l1 = 0, l2 = 0;
-    if (Math.random() < .5) { const L = pick([[3, 4, 3, 5, 5], [5, 12, 9, 13, 15], [6, 8, 6, 10, 10], [3, 4, 0, 5, 4], [9, 12, 5, 15, 13]]); x = L[0]; h = L[1]; b2 = R(3, 9); b1 = x + b2 + L[2]; l1 = L[3]; l2 = L[4]; if (L[2] === 0) l2 = 0; }
+    if (Math.random() < .5) { const L = pick([[3, 4, 3, 5, 5], [5, 12, 9, 13, 15], [6, 8, 6, 10, 10], [9, 12, 5, 15, 13]]); x = L[0]; h = L[1]; b2 = R(3, 9); b1 = x + b2 + L[2]; l1 = L[3]; l2 = L[4]; }
     else { h = R(2, lv > 1 ? 10 : 6); b2 = R(2, 8); b1 = b2 + R(2, 8); x = R(0, b1 - b2); if (lv < 3 && ((b1 + b2) * h) % 2) b1++; }
     const d = drawTrap(b1, b2, h, x, u, { l1, l2 });
-    return { d, ask: 'A = ?', ans: (b1 + b2) * h / 2, unit: u + '²', formula: wr(['<b>A</b> = ½ × (b₁ + b₂) × h', '<b>A</b> = ½ × (__ + __) × __', '<b>A</b> = ____ ' + u + '²']), sol: `A = ½ × (${b1} + ${b2}) × ${h} = ½ × ${b1 + b2} × ${h} = ${fmt((b1 + b2) * h / 2)} ${u}²` };
+    return { d, ask: 'A = ?', ans: (b1 + b2) * h / 2, unit: u + '²', lines: ['A = ½ × (b₁ + b₂) × h', T`A = ½ × (${b1} + ${b2}) × ${h} = ½ × ${b1 + b2} × ${h} = ${(b1 + b2) * h / 2} ${u}²`] };
   },
   comp(lv) {
     const u = pick(U), kind = pick(['L', 'L', 'U', 'house']);
     if (kind === 'L') { const W = R(5, lv > 1 ? 14 : 10), H = R(4, lv > 1 ? 12 : 9), cw = R(2, W - 2), ch = R(2, H - 2);
-      const d = drawL(W, H, cw, ch, u); const a1 = (W - cw) * H, a2 = cw * (H - ch);
-      return { d, ask: 'A = ?', sub: 'split it ✂️', ans: W * H - cw * ch, unit: u + '²', formula: wr(['Split into 2 rectangles', '<b>A₁</b> = __ × __', '<b>A₂</b> = __ × __', '<b>A</b> = A₁ + A₂ = ____ ' + u + '²']), sol: `A = ${W - cw}×${H} + ${cw}×${H - ch} = ${a1} + ${a2} = ${a1 + a2} ${u}²` }; }
+      const d = drawL(W, H, cw, ch, u, { pieces: true }); const a1 = (W - cw) * H, a2 = cw * (H - ch);
+      return { d, ask: 'A = ?', sub: 'split into Piece 1 + Piece 2', ans: a1 + a2, unit: u + '²', lines: ['A = A₁ + A₂', T`A₁ = ${W - cw} × ${H} = ${a1}`, T`A₂ = ${cw} × ${H - ch} = ${a2}`, T`A = ${a1} + ${a2} = ${a1 + a2} ${u}²`], note: `Piece 2 height = ${H} − ${ch} = ${H - ch}` }; }
     if (kind === 'U') { const W = R(6, 14), H = R(4, 10), q = R(2, W - 4), dd = R(1, H - 2); const d = drawU(W, H, q, dd, u);
-      return { d, ask: 'A = ?', sub: 'big − cut-out ➖', ans: W * H - q * dd, unit: u + '²', formula: wr(['Big rectangle − cut-out', '<b>A</b> = (__ × __) − (__ × __)', '<b>A</b> = ____ ' + u + '²']), sol: `A = ${W}×${H} − ${q}×${dd} = ${W * H} − ${q * dd} = ${W * H - q * dd} ${u}²` }; }
+      return { d, ask: 'A = ?', sub: 'big rectangle − cut-out', ans: W * H - q * dd, unit: u + '²', lines: ['A = big − cut-out', T`big = ${W} × ${H} = ${W * H}`, T`cut-out = ${q} × ${dd} = ${q * dd}`, T`A = ${W * H} − ${q * dd} = ${W * H - q * dd} ${u}²`] }; }
     const W = 2 * R(3, 7), H = R(3, 7), r = R(2, 5); const d = drawHouse(W, H, r, u);
-    return { d, ask: 'A = ?', sub: 'rectangle + triangle', ans: W * H + W * r / 2, unit: u + '²', formula: wr(['<b>A</b> = rectangle + triangle', '<b>A</b> = (__ × __) + (½ × __ × __)', '<b>A</b> = ____ ' + u + '²']), sol: `A = ${W}×${H} + ½×${W}×${r} = ${W * H} + ${W * r / 2} = ${W * H + W * r / 2} ${u}²` };
+    return { d, ask: 'A = ?', sub: 'Piece 1 (rectangle) + Piece 2 (triangle)', ans: W * H + W * r / 2, unit: u + '²', lines: ['A = A₁ + A₂', T`A₁ = ${W} × ${H} = ${W * H}`, T`A₂ = ½ × ${W} × ${r} = ${W * r / 2}`, T`A = ${W * H} + ${W * r / 2} = ${W * H + W * r / 2} ${u}²`] };
   },
   perim(lv) {
     const u = pick(U), kind = pick(['L', 'L', 'Lmiss', 'para', 'tri', 'trap']);
     if (kind === 'L' || kind === 'Lmiss') { const W = R(5, 14), H = R(4, 12), cw = R(2, W - 2), ch = R(2, H - 2);
-      if (kind === 'Lmiss') { const which = pick([1, 2]); // ask missing side 1 (notch depth, vertical) or 2 (notch width, horizontal)
+      if (kind === 'Lmiss') { const which = pick([1, 2]);
         const labels = { 0: W - cw, 3: H - ch, 4: W, 5: H }; labels[which] = '?'; const ans = which === 1 ? ch : cw;
         const d = drawL(W, H, cw, ch, u, { labels, showNotch: true });
-        return { d, ask: '? = ', sub: 'missing side', ans, unit: u, formula: wr(which === 1 ? ['Left side = right pieces', '? = __ − __'] : ['Bottom = top pieces', '? = __ − __']), sol: which === 1 ? `? = ${H} − ${H - ch} = ${ch} ${u}` : `? = ${W} − ${W - cw} = ${cw} ${u}` }; }
-      const d = drawL(W, H, cw, ch, u, { perim: true, missing: [[1, ch], [2, cw]] });
-      return { d, ask: 'P = ?', sub: 'find missing sides first', ans: 2 * (W + H), unit: u, formula: wr(['1) find the 2 missing sides', '<span class="p">P</span> = add ALL 6 sides', '<span class="p">P</span> = ____ ' + u]), sol: `P = ${W - cw} + ${ch} + ${cw} + ${H - ch} + ${W} + ${H} = ${2 * (W + H)} ${u}` }; }
-    if (kind === 'para') { const t = pick(TRIPLES), b = R(t[0] + 2, t[0] + 9); const d = drawPara(b, t[1], t[0], u, { slant: t[2], perim: true, showTop: false });
-      return { tr: true, d, ask: 'P = ?', sub: 'height is NOT a side', ans: 2 * (b + t[2]), unit: u, formula: wr(['<span class="p">P</span> = b + s + b + s', '<span class="p">P</span> = __ + __ + __ + __', '<span class="p">P</span> = ____ ' + u, '(skip the dashed h)']), sol: `P = ${b} + ${t[2]} + ${b} + ${t[2]} = ${2 * (b + t[2])} ${u}  (not ${t[1]})` }; }
+        return { d, ask: '? = ', sub: 'missing side', ans, unit: u, perim: true, lines: which === 1 ? ['? = long side − short side', T`? = ${H} − ${H - ch} = ${ch} ${u}`] : ['? = long side − short side', T`? = ${W} − ${W - cw} = ${cw} ${u}`] }; }
+      const d = drawL(W, H, cw, ch, u, { perim: true, labels: { 0: W - cw, 1: '?', 2: '?', 3: H - ch, 4: W, 5: H }, missing: [[1, ch], [2, cw]] });
+      return { d, ask: 'P = ?', sub: 'find the 2 missing sides first', ans: 2 * (W + H), unit: u, perim: true, lines: ['P = add all 6 sides', T`missing: ${H} − ${H - ch} = ${ch},  ${W} − ${W - cw} = ${cw}`, T`P = ${W - cw} + ${ch} + ${cw} + ${H - ch} + ${W} + ${H} = ${2 * (W + H)} ${u}`] }; }
+    if (kind === 'para') { const t = pick(TRIPLES), b = R(t[0] + 2, t[0] + 9); const d = drawPara(b, t[1], t[0], u, { slant: t[2], perim: true });
+      return { tr: true, d, ask: 'P = ?', sub: 'the height is NOT a side', ans: 2 * (b + t[2]), unit: u, perim: true, lines: ['P = b + side + b + side', T`P = ${b} + ${t[2]} + ${b} + ${t[2]} = ${2 * (b + t[2])} ${u}`] }; }
     if (kind === 'tri') { const t = pick(TRI_SETS); const d = drawTri(t[1], t[2], t[0], u, { sL: t[3], sR: t[4], perim: true, noCopy: true });
-      return { tr: true, d, ask: 'P = ?', sub: 'height is NOT a side', ans: t[1] + t[3] + t[4], unit: u, formula: wr(['<span class="p">P</span> = side + side + side', '<span class="p">P</span> = __ + __ + __ = ____ ' + u]), sol: `P = ${t[1]} + ${t[3]} + ${t[4]} = ${t[1] + t[3] + t[4]} ${u}` }; }
+      return { tr: true, d, ask: 'P = ?', sub: 'the height is NOT a side', ans: t[1] + t[3] + t[4], unit: u, perim: true, lines: ['P = b + side + side', T`P = ${t[1]} + ${t[3]} + ${t[4]} = ${t[1] + t[3] + t[4]} ${u}`] }; }
     const L = pick([[3, 4, 3, 5, 5], [5, 12, 9, 13, 15], [6, 8, 6, 10, 10]]); const b2 = R(3, 9), b1 = L[0] + b2 + L[2];
     const d = drawTrap(b1, b2, L[1], L[0], u, { l1: L[3], l2: L[4], perim: true, noCopy: true });
-    return { tr: true, d, ask: 'P = ?', sub: 'height is NOT a side', ans: b1 + b2 + L[3] + L[4], unit: u, formula: wr(['<span class="p">P</span> = all 4 outside sides', '<span class="p">P</span> = __ + __ + __ + __ = ____ ' + u]), sol: `P = ${b1} + ${b2} + ${L[3]} + ${L[4]} = ${b1 + b2 + L[3] + L[4]} ${u}` };
+    return { tr: true, d, ask: 'P = ?', sub: 'the height is NOT a side', ans: b1 + b2 + L[3] + L[4], unit: u, perim: true, lines: ['P = b₁ + b₂ + side + side', T`P = ${b1} + ${b2} + ${L[3]} + ${L[4]} = ${b1 + b2 + L[3] + L[4]} ${u}`] };
   },
   rev(lv) {
     const u = pick(U), kind = pick(['para', 'tri', 'rect', 'rectP']);
-    if (kind === 'para') { const t = pick(TRIPLES), b = R(t[0] + 2, t[0] + 8); const d = drawPara(b, t[1], t[0], u, { noH: false });
-      const s = d.svg.replace(`>${t[1]} ${u}</text>`, `>h = ?</text>`); d.svg = s;
-      return { d, ask: 'h = ?', sub: `A = ${b * t[1]} ${u}²`, ans: t[1], unit: u, formula: wr(['<b>A</b> = b × h', '__ = __ × h', 'h = __ ÷ __ = ____ ' + u]), sol: `${b * t[1]} = ${b} × h → h = ${b * t[1]} ÷ ${b} = ${t[1]} ${u}` }; }
-    if (kind === 'tri') { const b = 2 * R(2, 7), h = R(2, 10); const d = drawTri(b, h, R(1, b - 1), u); d.svg = d.svg.replace(`>${h} ${u}</text>`, '>h = ?</text>');
-      return { d, ask: 'h = ?', sub: `A = ${b * h / 2} ${u}²`, ans: h, unit: u, formula: wr(['<b>A</b> = ½ × b × h', '__ = ½ × __ × h', 'h = __ × 2 ÷ __ = ____ ' + u]), sol: `${b * h / 2} = ½ × ${b} × h → h = ${b * h / 2} × 2 ÷ ${b} = ${h} ${u}` }; }
+    if (kind === 'para') { const t = pick(TRIPLES), b = R(t[0] + 2, t[0] + 8), h = t[1]; const d = drawPara(b, h, t[0], u, { hText: 'h = ?' });
+      return { d, ask: 'h = ?', sub: `A = ${b * h} ${u}²`, ans: h, unit: u, lines: ['A = b × h  →  h = A ÷ b', T`${b * h} = ${b} × h`, T`h = ${b * h} ÷ ${b} = ${h} ${u}`] }; }
+    if (kind === 'tri') { const b = 2 * R(2, 7), h = R(2, 10); const d = drawTri(b, h, R(1, b - 1), u, { hText: 'h = ?' });
+      return { d, ask: 'h = ?', sub: `A = ${b * h / 2} ${u}²`, ans: h, unit: u, lines: ['A = ½ × b × h  →  h = A × 2 ÷ b', T`${b * h / 2} = ½ × ${b} × h`, T`h = ${b * h / 2} × 2 ÷ ${b} = ${h} ${u}`] }; }
     const l = R(3, 12), w = R(2, 9); const M = mapper([[0, 0], [l, w]]); const P = [[0, 0], [l, 0], [l, w], [0, w]].map(M.P), c = cen(P);
-    let s = `<polygon class="fillA" points="${ptsStr(P)}"/><polygon class="${kind === 'rectP' ? 'perim' : 'edge'}" points="${ptsStr(P)}"/>` + segLbl(P[2], P[3], `${l} ${u}`, '', c, 16) + segLbl(P[3], P[0], '?', 'h big', c);
+    const s = `<polygon class="fillA" points="${ptsStr(P)}"/><polygon class="${kind === 'rectP' ? 'perim' : 'edge'}" points="${ptsStr(P)}"/>` + segLbl(P[2], P[3], `l = ${l} ${u}`, '', c, 16) + segLbl(P[3], P[0], 'w = ?', 'h', c);
     const d = { svg: svgWrap(s), hint() {} };
-    if (kind === 'rect') return { d, ask: '? = ', sub: `A = ${l * w} ${u}²`, ans: w, unit: u, formula: wr(['<b>A</b> = l × w', '__ = __ × ?', '? = __ ÷ __ = ____ ' + u]), sol: `${l * w} ÷ ${l} = ${w} ${u}` };
-    return { d, ask: '? = ', sub: `P = ${2 * (l + w)} ${u}`, ans: w, unit: u, formula: wr(['<span class="p">P</span> = l + w + l + w', '__ − __ − __ = 2 × ?', '? = ____ ' + u]), sol: `${2 * (l + w)} − ${l} − ${l} = ${2 * w} → ? = ${2 * w} ÷ 2 = ${w} ${u}` };
+    if (kind === 'rect') return { d, ask: 'w = ?', sub: `A = ${l * w} ${u}²`, ans: w, unit: u, lines: ['A = l × w  →  w = A ÷ l', T`${l * w} = ${l} × w`, T`w = ${l * w} ÷ ${l} = ${w} ${u}`] };
+    return { d, ask: 'w = ?', sub: `P = ${2 * (l + w)} ${u}`, ans: w, unit: u, perim: true, lines: ['P = 2 × (l + w)', T`${2 * (l + w)} ÷ 2 = ${l + w}`, T`w = ${l + w} − ${l} = ${w} ${u}`] };
   },
   word(lv) {
     const dec = lv >= 2 && Math.random() < .5;
-    const T = [
-      () => { const l = R(4, 12) + (dec ? .5 : 0), w = R(3, 9); return ['🌷', `Garden ${fmt(l)} ft by ${w} ft. How much <u>fence</u> goes around?`, 2 * (l + w), 'ft', ['ft', 'ft²'], `P = ${fmt(l)} + ${w} + ${fmt(l)} + ${w} = ${fmt(2 * (l + w))} ft`]; },
-      () => { const l = R(4, 12) + (dec ? .5 : 0), w = R(3, 9); return ['🌱', `Lawn ${fmt(l)} m by ${w} m. How much <u>grass</u> covers it?`, l * w, 'm²', ['m', 'm²'], `A = ${fmt(l)} × ${w} = ${fmt(l * w)} m²`]; },
-      () => { const b = R(6, 20), h = R(4, 14); return ['🚩', `Triangle flag: base ${b} in, height ${h} in. How much <u>fabric</u>?`, b * h / 2, 'in²', ['in', 'in²'], `A = ½ × ${b} × ${h} = ${fmt(b * h / 2)} in²`]; },
-      () => { const b1 = R(8, 16), b2 = R(3, 7), h = 2 * R(2, 5); return ['🪟', `Trapezoid window: bases ${b1} ft & ${b2} ft, height ${h} ft. How much <u>glass</u>?`, (b1 + b2) * h / 2, 'ft²', ['ft', 'ft²'], `A = ½ × (${b1} + ${b2}) × ${h} = ${fmt((b1 + b2) * h / 2)} ft²`]; },
-      () => { const b = R(6, 12) + (dec ? .5 : 0), s = R(4, 8); return ['🎀', `Parallelogram card: sides ${fmt(b)} cm & ${s} cm. How much <u>ribbon</u> goes around the edge?`, 2 * (b + s), 'cm', ['cm', 'cm²'], `P = ${fmt(b)} + ${s} + ${fmt(b)} + ${s} = ${fmt(2 * (b + s))} cm`]; },
-      () => { const b = R(6, 14), h = R(3, 9), s = h + R(1, 3); return ['🧱', `Parallelogram patio: base ${b} yd, height ${h} yd, slanted side ${s} yd. <u>Area</u>?`, b * h, 'yd²', ['yd', 'yd²'], `A = ${b} × ${h} = ${b * h} yd² (slant ${s} not used)`]; },
-      () => { const W = R(10, 16), H = R(8, 12), cw = R(3, 5), ch = R(3, 5); return ['🛋️', `L-shaped room: ${W}×${H} ft with a ${cw}×${ch} ft corner cut out. <u>Carpet</u> needed?`, W * H - cw * ch, 'ft²', ['ft', 'ft²'], `A = ${W}×${H} − ${cw}×${ch} = ${W * H} − ${cw * ch} = ${W * H - cw * ch} ft²`]; },
-      () => { const s = R(3, 9) + (dec ? .25 : 0); return ['🖼️', `Square frame, each side ${fmt(s)} in. <u>Border</u> length?`, 4 * s, 'in', ['in', 'in²'], `P = 4 × ${fmt(s)} = ${fmt(4 * s)} in`]; },
+    const W8 = [
+      () => { const l = R(4, 12) + (dec ? .5 : 0), w = R(3, 9); return ['🌷', `Garden ${fmt(l)} ft by ${w} ft. How much <u>fence</u> goes around?`, 2 * (l + w), 'ft', ['ft', 'ft²'], ['P = 2 × (l + w)', T`P = 2 × (${l} + ${w}) = ${2 * (l + w)} ft`]]; },
+      () => { const l = R(4, 12) + (dec ? .5 : 0), w = R(3, 9); return ['🌱', `Lawn ${fmt(l)} m by ${w} m. How much <u>grass</u> covers it?`, l * w, 'm²', ['m', 'm²'], ['A = l × w', T`A = ${l} × ${w} = ${l * w} m²`]]; },
+      () => { const b = R(6, 20), h = R(4, 14); return ['🚩', `Triangle flag: base ${b} in, height ${h} in. How much <u>fabric</u>?`, b * h / 2, 'in²', ['in', 'in²'], ['A = ½ × b × h', T`A = ½ × ${b} × ${h} = ${b * h / 2} in²`]]; },
+      () => { const b1 = R(8, 16), b2 = R(3, 7), h = 2 * R(2, 5); return ['🪟', `Trapezoid window: bases ${b1} ft & ${b2} ft, height ${h} ft. How much <u>glass</u>?`, (b1 + b2) * h / 2, 'ft²', ['ft', 'ft²'], ['A = ½ × (b₁ + b₂) × h', T`A = ½ × (${b1} + ${b2}) × ${h} = ${(b1 + b2) * h / 2} ft²`]]; },
+      () => { const b = R(6, 12) + (dec ? .5 : 0), s = R(4, 8); return ['🎀', `Parallelogram card: sides ${fmt(b)} cm & ${s} cm. How much <u>ribbon</u> goes around the edge?`, 2 * (b + s), 'cm', ['cm', 'cm²'], ['P = b + side + b + side', T`P = ${b} + ${s} + ${b} + ${s} = ${2 * (b + s)} cm`]]; },
+      () => { const b = R(6, 14), h = R(3, 9), s = h + R(1, 3); return ['🧱', `Parallelogram patio: base ${b} yd, height ${h} yd, slanted side ${s} yd. <u>Area</u>?`, b * h, 'yd²', ['yd', 'yd²'], ['A = b × h  (not the slanted side)', T`A = ${b} × ${h} = ${b * h} yd²`]]; },
+      () => { const W = R(10, 16), H = R(8, 12), cw = R(3, 5), ch = R(3, 5); return ['🛋️', `L-shaped room: ${W}×${H} ft with a ${cw}×${ch} ft corner cut out. <u>Carpet</u> needed?`, W * H - cw * ch, 'ft²', ['ft', 'ft²'], ['A = big − cut-out', T`A = ${W} × ${H} − ${cw} × ${ch} = ${W * H} − ${cw * ch} = ${W * H - cw * ch} ft²`]]; },
+      () => { const s = R(3, 9) + (dec ? .25 : 0); return ['🖼️', `Square frame, each side ${fmt(s)} in. <u>Border</u> length?`, 4 * s, 'in', ['in', 'in²'], ['P = 4 × side', T`P = 4 × ${s} = ${4 * s} in`]]; },
     ];
-    const [e, t, ans, unit, units, sol] = pick(T)();
-    return { word: true, scene: e, text: t, ask: '', ans, unit, units, formula: wr(['Around → <span class="p">P</span> (units)', 'Cover / inside → <b>A</b> (units²)', 'Write: formula → numbers → answer + unit']), sol, d: null };
+    const [e, t, ans, unit, units, lines] = pick(W8)();
+    return { word: true, scene: e, text: t, ask: '', ans, unit, units, lines, note: 'Around → P (units) · Cover inside → A (units²)', d: null };
   },
   coord(lv) {
     const kind = pick(['rect', 'rect', 'tri']);
-    if (kind === 'rect') { const x1 = R(0, 4), y1 = R(0, 4), x2 = x1 + R(2, 6), y2 = y1 + R(2, 5), ask = pick(['A', 'P']);
-      const tmp = drawCoord([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], []);
-      const lab = [[(tmp.X(x1) + tmp.X(x2)) / 2, tmp.Y(y1) + 14, `${x2 - x1}`], [tmp.X(x2) + 14, (tmp.Y(y1) + tmp.Y(y2)) / 2, `${y2 - y1}`]];
-      const d = drawCoord([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], lab); const w = x2 - x1, h = y2 - y1;
-      return ask === 'A' ? { d, ask: 'A = ?', sub: 'subtract to get lengths', ans: w * h, unit: 'units²', formula: wr(['length = big x − small x', 'height = big y − small y', '<b>A</b> = __ × __ = ____ units²']), sol: `${x2}−${x1} = ${w}, ${y2}−${y1} = ${h} → A = ${w * h} units²` }
-        : { d, ask: 'P = ?', sub: 'subtract to get lengths', ans: 2 * (w + h), unit: 'units', formula: wr(['length = big x − small x', 'height = big y − small y', '<span class="p">P</span> = __ + __ + __ + __ = ____ units']), sol: `${w} + ${h} + ${w} + ${h} = ${2 * (w + h)} units` }; }
+    if (kind === 'rect') { const x1 = R(0, 4), y1 = R(0, 4), x2 = x1 + R(2, 6), y2 = y1 + R(2, 5), ask = pick(['A', 'P']); const w = x2 - x1, h = y2 - y1;
+      const pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]; const tmp = drawCoord(pts, []);
+      const d = drawCoord(pts, [[(tmp.X(x1) + tmp.X(x2)) / 2, tmp.Y(y1) + 15, `l = ${x2} − ${x1}`], [tmp.X(x2) + 8, (tmp.Y(y1) + tmp.Y(y2)) / 2, `w = ${y2} − ${y1}`, 'start']]);
+      const base = [T`l = ${x2} − ${x1} = ${w}`, T`w = ${y2} − ${y1} = ${h}`];
+      return ask === 'A' ? { d, ask: 'A = ?', sub: 'lengths: big − small', ans: w * h, unit: 'units²', lines: ['A = l × w', ...base, T`A = ${w} × ${h} = ${w * h} units²`] }
+        : { d, ask: 'P = ?', sub: 'lengths: big − small', ans: 2 * (w + h), unit: 'units', perim: true, lines: ['P = 2 × (l + w)', ...base, T`P = 2 × (${w} + ${h}) = ${2 * (w + h)} units`] }; }
     const x1 = R(0, 3), y1 = R(0, 3), x2 = x1 + R(2, 7), y3 = y1 + R(2, 6); const w = x2 - x1, h = y3 - y1;
-    const tmp = drawCoord([[x1, y1], [x2, y1], [x1, y3]], []);
-    const d = drawCoord([[x1, y1], [x2, y1], [x1, y3]], [[(tmp.X(x1) + tmp.X(x2)) / 2, tmp.Y(y1) + 14, `${w}`], [tmp.X(x1) - 14, (tmp.Y(y1) + tmp.Y(y3)) / 2, `${h}`]]);
-    return { d, ask: 'A = ?', sub: 'right triangle', ans: w * h / 2, unit: 'units²', formula: wr(['b = big x − small x', 'h = big y − small y', '<b>A</b> = ½ × __ × __ = ____ units²']), sol: `b = ${w}, h = ${h} → A = ½ × ${w} × ${h} = ${fmt(w * h / 2)} units²` };
+    const pts = [[x1, y1], [x2, y1], [x1, y3]]; const tmp = drawCoord(pts, []);
+    const d = drawCoord(pts, [[(tmp.X(x1) + tmp.X(x2)) / 2, tmp.Y(y1) + 15, `b = ${x2} − ${x1}`], [tmp.X(x1) + 8, (tmp.Y(y1) + tmp.Y(y3)) / 2, `h = ${y3} − ${y1}`, 'start']]);
+    return { d, ask: 'A = ?', sub: 'right triangle', ans: w * h / 2, unit: 'units²', lines: ['A = ½ × b × h', T`b = ${x2} − ${x1} = ${w}`, T`h = ${y3} − ${y1} = ${h}`, T`A = ½ × ${w} × ${h} = ${w * h / 2} units²`] };
   },
   sort() {
     const SC = [['🏡', 'fence the yard', 'P'], ['🧶', 'carpet the floor', 'A'], ['🖼️', 'frame border', 'P'], ['🎨', 'paint a wall', 'A'], ['🌱', 'grass seed for lawn', 'A'], ['🎀', 'ribbon around a card', 'P'], ['🏊', 'cover the pool', 'A'], ['🏃‍♀️', 'one lap around the track', 'P'], ['🍕', 'crust around the edge', 'P'], ['📱', 'screen protector', 'A'], ['🧁', 'frosting on top', 'A'], ['💡', 'lights along the roof edge', 'P'], ['🟫', 'tiles for the floor', 'A'], ['🧵', 'lace along a pillow edge', 'P'],
-      ['📏', '24 ft', 'P'], ['🟪', '24 ft²', 'A'], ['📏', '9 cm', 'P'], ['🟪', '9 cm²', 'A'], ['⬛', 'square units', 'A'], ['➖', 'plain units', 'P'], ['⊾', 'height × base', 'A'], ['↗️', 'add the slanted side', 'P']];
+      ['📏', '24 ft', 'P'], ['🟪', '24 ft²', 'A'], ['📏', '9 cm', 'P'], ['🟪', '9 cm²', 'A'], ['⬛', 'square units', 'A'], ['➖', 'plain units', 'P'], ['⊾', 'base × height', 'A'], ['↗️', 'add the slanted side', 'P']];
     const [e, t, a] = pick(SC); return { sort: true, scene: e, text: t, ans: a };
   }
 };
+
 const MODES = [
   { id: 'sort', name: 'Area or Perimeter?', ico: '🤔', gen: 'sort' },
   { id: 'warm', name: 'Warm-up grid', ico: '🔲', gen: 'warm' },
@@ -337,7 +368,41 @@ const MINI = {
 /* ---------- screens ---------- */
 const app = $('#app');
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-function go(fn, ...a) { TOKEN++; window.scrollTo(0, 0); refreshStars(); fn(...a); requestAnimationFrame(() => window.scrollTo(0, 0)); }
+/* ----- hash deep links (#practice-triangle, #learn-parallelogram, ...) ----- */
+const SITE_URL = 'https://tbux22.github.io/laylas-shape-lab/';
+const P_SLUG = { sort: 'area-or-perimeter', warm: 'warmup', para: 'parallelogram', tri: 'triangle', trap: 'trapezoid', comp: 'weird-shapes', perim: 'perimeter', rev: 'backwards', word: 'word-problems', coord: 'coordinates', test: 'test' };
+const L_SLUG = ['area-vs-perimeter', 'parallelogram', 'height', 'triangle', 'height-outside', 'trapezoid', 'weird-shapes'];
+let CUR = 'home';
+function slugFor(fn, a) {
+  if (fn === practice) return 'practice-' + (P_SLUG[a] || 'test');
+  if (fn === learn) return 'learn-' + (L_SLUG[a] || L_SLUG[0]);
+  if (fn === cheat) return 'cheat-sheet';
+  if (fn === videos) return 'videos';
+  return 'home';
+}
+function routeFromHash() {
+  const h = decodeURIComponent(location.hash.slice(1)).toLowerCase();
+  let m;
+  if ((m = h.match(/^practice-(.+)$/))) { const id = Object.keys(P_SLUG).find(k => P_SLUG[k] === m[1]); if (id) return go(practice, id); }
+  if ((m = h.match(/^learn-(.+)$/))) { const i = L_SLUG.indexOf(m[1]); if (i >= 0) return go(learn, i); if (/^\d+$/.test(m[1]) && +m[1] < L_SLUG.length) return go(learn, +m[1]); }
+  if (h === 'learn') return go(learn, 0);
+  if ((m = h.match(/^p-(.+)$/)) && P_SLUG[m[1]]) return go(practice, m[1]);   // old links
+  if (h === 'cheat-sheet' || h === 'cheat') return go(cheat);
+  if (h === 'videos') return go(videos);
+  go(home);
+}
+function dadHref() {
+  const body = 'Could you help me, dad\nGet back to work 👉 ' + SITE_URL + '#' + CUR;
+  return 'sms:+12038240275?&body=' + encodeURIComponent(body);
+}
+function go(fn, ...a) {
+  TOKEN++; hush(); window.scrollTo(0, 0); refreshStars();
+  CUR = slugFor(fn, a[0]);
+  try { if (location.hash.slice(1) !== CUR) history.replaceState(null, '', '#' + CUR); } catch (e) {}
+  const d = $('#textDad'); if (d) d.href = dadHref();
+  fn(...a); requestAnimationFrame(() => window.scrollTo(0, 0));
+}
+{ const d = $('#textDad'); if (d) d.addEventListener('click', () => { d.href = dadHref(); }); }
 $('#homeBtn').onclick = () => go(home);
 
 function home() {
@@ -369,23 +434,107 @@ function home() {
   $('#reset').onclick = () => { if (confirm('Reset all stars?')) { S = { stars: {}, best: 0 }; save(); go(home); } };
 }
 
-/* ----- Learn ----- */
+/* ----- Voice (Web Speech API) ----- */
+const SP = { ok: 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined', on: !!S.voice, voice: null };
+function pickVoice() {
+  if (!SP.ok) return; const vs = speechSynthesis.getVoices(); if (!vs.length) return;
+  const us = vs.filter(v => /^en[-_]US/i.test(v.lang)), en = vs.filter(v => /^en/i.test(v.lang));
+  const pref = [/samantha/i, /aria/i, /jenny/i, /ava/i, /allison/i, /google us english/i, /zira/i, /female/i, /susan|karen|victoria|serena|moira|tessa/i];
+  for (const r of pref) { const v = us.find(v => r.test(v.name)) || en.find(v => r.test(v.name)); if (v) { SP.voice = v; return; } }
+  SP.voice = us[0] || en[0] || null;
+}
+if (SP.ok) { pickVoice(); try { speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {} }
+const spoken = t => String(t).replace(/<[^>]+>/g, '').replace(/½/g, 'one half').replace(/×/g, ' times ').replace(/÷/g, ' divided by ').replace(/−/g, ' minus ').replace(/²/g, ' squared').replace(/₁/g, ' 1').replace(/₂/g, ' 2').replace(/\bft\b/g, 'feet').replace(/\bcm\b/g, 'centimeters').replace(/\bin\b(?= |\.|$)/g, 'inches').replace(/\bm\b/g, 'meters').replace(/\bP =/g, 'P equals').replace(/\bA =/g, 'A equals').replace(/=/g, ' equals ');
+function say(text, onend) {
+  let done = false; const fin = () => { if (!done) { done = true; onend && onend(); } };
+  if (!SP.ok || !SP.on) { fin(); return; }
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(spoken(text)); u.lang = 'en-US'; u.rate = 0.9; u.pitch = 1.05; if (SP.voice) u.voice = SP.voice;
+    u.onend = fin; u.onerror = fin; setTimeout(fin, 3000 + spoken(text).length * 90);
+    speechSynthesis.speak(u);
+  } catch (e) { fin(); }
+}
+function hush() { try { if (SP.ok) speechSynthesis.cancel(); } catch (e) {} }
+
+/* ----- Learn: captions + voice + worked answers ----- */
 const LESSONS = [
-  { t: 'Fence vs Carpet', f: '<span class="formula p" style="font-size:22px">P = around (ft)</span> · <span style="font-size:22px">A = inside (ft²)</span>', make() { return drawGrid(5, 3, 'P'); }, play(el, d) { d.hint(el); later(3000, () => { const g = drawGrid(5, 3, 'A'); const tmp = document.createElement('div'); tmp.innerHTML = g.svg; el.querySelector('.tiles').replaceWith(tmp.querySelector('.tiles')); g.hint(el); }); } },
-  { t: 'Slide the slice ✂️', f: 'A = b × h', make() { return drawPara(8, 4, 3, 'cm', { slant: 5 }); }, play(el, d) { d.hint(el); } },
-  { t: 'Height stands up ⊾', f: 'h = dashed. Slant = fence only.', make() { const d = drawPara(8, 4, 3, 'cm', { slant: 5 }); d.svg = d.svg.replace('</svg>', `<g class="xx fade hide">${txt(40, 60, '✗ area', 's')}${txt(40, 80, '✓ perimeter', 'p')}</g></svg>`); return d; }, play(el) { later(300, () => el.querySelector('.xx').classList.remove('hide')); } },
-  { t: 'Triangle = ½ parallelogram', f: 'A = ½ × b × h', make() { return drawTri(8, 5, 3, 'm'); }, play(el, d) { d.hint(el); } },
-  { t: 'Height can be outside', f: 'still A = ½ × b × h', make() { return drawTri(4, 5, -3, 'm', { noCopy: true }); }, play(el) { const h = el.querySelector('.hline'); h.animate([{ opacity: 0 }, { opacity: 1 }, { opacity: .2 }, { opacity: 1 }], { duration: 1600 }); } },
-  { t: 'Trapezoid: 2 copies', f: 'A = ½ × (b₁ + b₂) × h', make() { return drawTrap(9, 4, 4, 2, 'in', { noCopy: false }); }, play(el, d) { d.hint(el); } },
-  { t: 'Split it ➕ or cut it ➖', f: 'add pieces · or big − cut-out', make() { return drawL(8, 6, 4, 3, 'ft'); }, play(el, d) { d.hint(el); } },
+  { t: 'Fence vs Carpet', make: () => drawGrid(5, 3, 'P', 'ft'),
+    steps: [
+      { c: 'This rectangle is 5 feet long and 3 feet wide.', ms: 1800 },
+      { c: 'Perimeter: walk around the edge and add every side.', ms: 3000, act: (el, d) => d.count(el) },
+      { c: 'Area: cover the inside with 1-foot square tiles.', ms: 2400, act: (el, d) => d.tiles(el) },
+      { c: '15 tiles fit inside. That is 5 × 3.', ms: 1800 }],
+    P: ['P = 5 + 3 + 5 + 3 = 16 ft', 'add all 4 sides'], A: ['A = l × w = 5 × 3 = 15 ft²', 'count the squares'] },
+  { t: 'Slide the slice ✂️', make: () => drawPara(8, 4, 3, 'cm', { slant: 5, showTop: true, showRight: true }),
+    steps: [
+      { c: 'Here is a parallelogram. The base is 8 cm and the height is 4 cm.', ms: 2000 },
+      { c: 'Cut off the triangle on the left side.', ms: 1600, act: (el, d) => d.cut(el) },
+      { c: 'Slide it over to the right side.', ms: 1800, act: (el, d) => d.slide(el) },
+      { c: 'Now it is a rectangle, 8 by 4. Nothing was lost!', ms: 1800, act: (el, d) => d.rect(el) },
+      { c: 'So the area is base × height.', ms: 1400 }],
+    P: ['P = 8 + 5 + 8 + 5 = 26 cm', 'uses the slanted sides (5 cm)'], A: ['A = b × h = 8 × 4 = 32 cm²', 'uses the height (4 cm), not the slanted side'] },
+  { t: 'Height stands up ⊾', make: () => drawPara(8, 4, 3, 'cm', { slant: 5, showTop: true, showRight: true }),
+    steps: [
+      { c: 'The height is the dashed purple line.', ms: 1600, act: el => { const h = el.querySelector('.hline'); if (h && h.animate && !RM) h.animate([{ opacity: 1 }, { opacity: .2 }, { opacity: 1 }], { duration: 900, iterations: 2 }); } },
+      { c: 'It makes a square corner with the base.', ms: 1600 },
+      { c: 'The slanted side is NOT the height.', ms: 1600 },
+      { c: 'Use the slanted side only for perimeter.', ms: 1600 }],
+    P: ['P = 8 + 5 + 8 + 5 = 26 cm', 'slanted side 5 cm counts here'], A: ['A = b × h = 8 × 4 = 32 cm²', 'height 4 cm — never 8 × 5'] },
+  { t: 'Triangle = ½ parallelogram', make: () => drawTri(6, 4, 3, 'm', { sL: 5, sR: 5 }),
+    steps: [
+      { c: 'This triangle has base 6 m and height 4 m.', ms: 1800 },
+      { c: 'Make a copy and flip it around.', ms: 1800, act: (el, d) => d.copy(el) },
+      { c: 'Two triangles make a parallelogram: 6 × 4 = 24.', ms: 1800 },
+      { c: 'One triangle is half of that: 12.', ms: 1600 }],
+    P: ['P = 6 + 5 + 5 = 16 m', 'add the 3 sides (slanted sides count)'], A: ['A = ½ × b × h = ½ × 6 × 4 = 12 m²', 'uses the height (4 m)'] },
+  { t: 'Height can be outside', make: () => drawTri(4, 12, -5, 'm', { noCopy: true, sL: 13, sR: 15, extHidden: true, hHidden: true }),
+    steps: [
+      { c: 'This triangle leans over. The base is 4 m.', ms: 1800 },
+      { c: 'Stretch the base with a dotted line.', ms: 1600, act: el => show(el, '.extg') },
+      { c: 'Drop the height straight down. It lands outside, and that is OK!', ms: 2200, act: el => show(el, '.hg') },
+      { c: 'Area is still one half × base × height.', ms: 1600 }],
+    P: ['P = 4 + 13 + 15 = 32 m', 'the 3 real sides'], A: ['A = ½ × b × h = ½ × 4 × 12 = 24 m²', 'height 12 m (outside the triangle)'] },
+  { t: 'Trapezoid: 2 copies', make: () => drawTrap(10, 4, 4, 3, 'in', { l1: 5, l2: 5 }),
+    steps: [
+      { c: 'A trapezoid has two parallel bases: 10 in and 4 in. The height is 4 in.', ms: 2200 },
+      { c: 'Make a copy and flip it around.', ms: 1800, act: (el, d) => d.copy(el) },
+      { c: 'Together they make a parallelogram. Its base is 10 + 4 = 14.', ms: 2000 },
+      { c: 'We only want one trapezoid, so take half.', ms: 1600 }],
+    P: ['P = 10 + 4 + 5 + 5 = 24 in', 'uses the slanted sides (5 in)'], A: ['A = ½ × (b₁ + b₂) × h = ½ × (10 + 4) × 4 = 28 in²', 'uses the height (4 in)'] },
+  { t: 'Split it ➕ or cut it ➖', make: () => drawL(8, 6, 4, 3, 'ft', { pieces: true, missing: [[1, 3], [2, 4]] }),
+    steps: [
+      { c: 'A weird shape? Split it into two rectangles.', ms: 1800 },
+      { c: 'Piece 1 is 4 by 6. That is 24 square feet.', ms: 1800, act: (el, d) => d.p1(el) },
+      { c: 'Piece 2 is 4 by 3. That is 12 square feet.', ms: 1800, act: (el, d) => d.p2(el) },
+      { c: 'For perimeter, find the missing sides: 6 − 3 = 3 and 8 − 4 = 4.', ms: 2200, act: (el, d) => d.miss(el) }],
+    P: ['P = 4 + 3 + 4 + 3 + 8 + 6 = 28 ft', 'all 6 outside sides'], A: ['A = A₁ + A₂ = 24 + 12 = 36 ft²', 'or big − cut-out: 48 − 12 = 36'] },
 ];
 function learn(i) {
   const L = LESSONS[i], d = L.make();
+  const vbtn = SP.ok ? `<button class="vbtn ${SP.on ? 'on' : ''}" id="voice" aria-pressed="${SP.on}">${SP.on ? '🔊 Voice on' : '🔈 Read to me'}</button>` : `<span class="vbtn off" title="Voice not supported on this browser">🔇 no voice here</span>`;
   app.innerHTML = `<div class="lh">${L.t}</div><div class="card"><div id="stg">${d.svg}</div></div>
-    <div class="formula ${i === 0 ? '' : ''}">${L.f}</div>
+    <div class="caps card"><div class="caphead"><b>Steps</b>${vbtn}</div><ol id="caps">${L.steps.map((s, k) => `<li data-i="${k}">${s.c}</li>`).join('')}</ol></div>
+    <div class="worked card hide" id="worked">
+      <div class="wp"><span class="tagp">Perimeter</span> <b>${L.P[0]}</b><small>${L.P[1]}</small></div>
+      <div class="wa"><span class="taga">Area</span> <b>${L.A[0]}</b><small>${L.A[1]}</small></div></div>
     <div class="dots">${LESSONS.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>
-    <div class="nav"><button class="btn" id="prev" ${i ? '' : 'disabled style="opacity:.4"'}>◀</button><button class="btn teal" id="again">↻ Replay</button><button class="btn pink" id="next">${i < LESSONS.length - 1 ? '▶' : '✓ Practice'}</button></div>`;
-  const el = $('#stg'); later(400, () => L.play(el, d));
+    <div class="nav"><button class="btn" id="prev" ${i ? '' : 'disabled style="opacity:.4"'} aria-label="previous">◀</button><button class="btn teal" id="again">↻ Replay</button><button class="btn pink" id="next" aria-label="next">${i < LESSONS.length - 1 ? '▶' : '✓ Practice'}</button></div>`;
+  const el = $('#stg'); fitSvg(el);
+  const caps = [...document.querySelectorAll('#caps li')];
+  let cur = 0; const t = TOKEN;
+  const mark = k => { cur = k; caps.forEach((li, j) => { li.classList.toggle('now', j === k); li.classList.toggle('done', j < k); }); };
+  const finish = () => { caps.forEach(li => { li.classList.remove('now'); li.classList.add('done'); }); const w = $('#worked'); w.classList.remove('hide'); say(`Perimeter: ${L.P[0]}. Area: ${L.A[0]}.`); };
+  const run = k => {
+    if (t !== TOKEN) return; if (k >= L.steps.length) return finish();
+    const s = L.steps[k]; mark(k); if (s.act) { try { s.act(el, d); } catch (e) {} }
+    let a = false, b = false; const nxt = () => { if (a && b && t === TOKEN) run(k + 1); };
+    say(s.c, () => { a = true; nxt(); }); setTimeout(() => { b = true; nxt(); }, RM ? 700 : s.ms);
+  };
+  run(0); // step 0 starts inside the tap that opened the lesson (lets iOS Safari speak)
+  const vb = $('#voice');
+  if (vb) vb.onclick = () => { SP.on = !SP.on; S.voice = SP.on; save(); vb.classList.toggle('on', SP.on); vb.setAttribute('aria-pressed', SP.on); vb.textContent = SP.on ? '🔊 Voice on' : '🔈 Read to me';
+    if (SP.on) { pickVoice(); const w = $('#worked'); say(w.classList.contains('hide') ? L.steps[cur].c : `Perimeter: ${L.P[0]}. Area: ${L.A[0]}.`); } else hush(); };
   $('#again').onclick = () => go(learn, i);
   $('#prev').onclick = () => i && go(learn, i - 1);
   $('#next').onclick = () => i < LESSONS.length - 1 ? go(learn, i + 1) : go(home);
@@ -397,69 +546,72 @@ function practice(mode) {
   const testPool = ['para', 'tri', 'trap', 'comp', 'perim', 'rev', 'word', 'sort', 'coord', 'tri', 'para', 'comp'];
   const order = isTest ? testPool.sort(() => Math.random() - .5).slice(0, N) : null;
   function next() {
-    TOKEN++;
+    TOKEN++; hush();
     if (q >= N) return done();
-    const m = isTest ? order[q] : mode; const p = GEN[MODES.find(x => x.id === m).gen](level(m)); p.m = m; show(p);
+    const m = isTest ? order[q] : mode; const p = GEN[MODES.find(x => x.id === m).gen](level(m)); p.m = m; showP(p);
   }
   function pips() { return `<div class="pips">${Array.from({ length: N }, (_, k) => `<i class="${k < res.length ? (res[k] ? 'on' : 'x') : ''}"></i>`).join('')}</div>`; }
-  function show(p) {
+  function writeBox(p, filled) {
+    const [f, ...rest] = p.lines;
+    const cls = p.perim ? 'p' : 'a';
+    if (filled && p.after) return `<div class="fline ${cls}">${lineF(f)}</div><div class="after" style="border:0;margin:0;padding:0">${p.after.map(x => `<div>${x}</div>`).join('')}</div>`;
+    return `<div class="fline ${cls}">${lineF(f)}</div>${rest.map(l => `<div class="wl">${filled ? lineF(l) : lineB(l)}</div>`).join('')}${filled && p.note ? `<div class="wnote">${p.note}</div>` : ''}${filled && p.after ? `<div class="after">${p.after.map(x => `<div>${x}</div>`).join('')}</div>` : ''}`;
+  }
+  function showP(p) {
     window.__p = p; // (used by automated tests only)
     let tries = 0, val = '', unitSel = null, finished = false;
     const head = isTest ? '🎯 Test' : MODES.find(x => x.id === mode).name;
-    let body = `<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#c2416e">${head}</b><span style="font-weight:800">${q + 1}/${N}</span></div>${pips()}`;
+    let body = `<div class="phead"><b>${head}</b><span>${q + 1}/${N}</span></div>${pips()}`;
     if (p.sort) {
       body += `<div class="card"><div class="scene">${p.scene}</div><div class="scenetxt">${p.text}</div></div>
+      <div class="write"><div class="wl"><span class="p" style="font-weight:800">Perimeter</span> = around the edge → units</div><div class="wl"><b>Area</b> = covers the inside → units²</div></div>
       <div class="choices"><button class="btn big teal" data-c="P">⟲ Perimeter<br><small>fence</small></button><button class="btn big pink" data-c="A">▦ Area<br><small>carpet</small></button></div>
       <div class="fb" id="fb"></div><div class="row"><button class="btn" id="nextq" style="display:none">Next ▶</button></div>`;
       app.innerHTML = body;
-      app.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { if (finished) return; finished = true; const ok = b.dataset.c === p.ans; grade(ok, true);
+      app.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { if (finished) return; finished = true; const ok = b.dataset.c === p.ans; grade(ok);
         $('#fb').innerHTML = ok ? '<span>Yes!</span>' : (p.ans === 'P' ? '⟲ Perimeter — it goes AROUND' : '▦ Area — it COVERS inside'); $('#fb').className = 'fb ' + (ok ? 'ok' : 'bad'); if (ok) flutter($('#fb'));
-        $('#nextq').style.display = ''; $('#nextq').onclick = () => { q++; next(); }; if (ok) later(900, () => { q++; next(); }); });
+        $('#nextq').style.display = ''; $('#nextq').onclick = () => { q++; next(); }; if (ok) later(1100, () => { q++; next(); }); });
       return;
     }
     if (p.word) body += `<div class="card"><div class="scene">${p.scene}</div><div class="scenetxt" style="font-size:18px">${p.text}</div></div>`;
     else body += `<div class="card"><div id="stg">${p.d.svg}</div></div>`;
-    body += `<div class="q">${p.word ? '' : p.ask}${p.sub ? `<small>${p.sub}</small>` : ''}</div>
-      <div class="ans"><div class="box" id="box">&nbsp;</div>${p.word ? p.units.map(u => `<button class="btn" data-u="${u}" style="min-width:64px;flex:0">${u}</button>`).join('') : `<span class="unit">${p.unit}</span>`}</div>
+    body += `<div class="write" id="write"><div class="wt">✏️ Write it on paper:</div><div id="wbody">${writeBox(p, false)}</div></div>
+      <div class="q">${p.word ? '' : p.ask}${p.sub ? `<small>${p.sub}</small>` : ''}</div>
+      <div class="ans"><div class="box" id="box">&nbsp;</div>${p.word ? p.units.map(u => `<button class="btn ubtn" data-u="${u}">${u}</button>`).join('') : `<span class="unit">${p.unit}</span>`}</div>
       <div class="fb" id="fb"></div>
       <div id="padwrap"><div class="keypad">${['7', '8', '9', '⌫', '4', '5', '6', '.', '1', '2', '3', '0'].map(k => `<button data-k="${k}" class="${k === '⌫' ? 'del' : ''}">${k}</button>`).join('')}<button class="go" data-k="ok" style="grid-column:span 4">✓ Check</button></div></div>
-      <div class="row"><button class="btn" id="wbtn">✏️ Write it</button><button class="btn pink" id="nextq" style="display:none">Next ▶</button></div>
-      <div class="write" id="write" style="display:none">✏️ On paper:<br>${p.formula}</div>`;
+      <div class="row"><button class="btn pink" id="nextq" style="display:none">Next ▶</button></div>`;
     app.innerHTML = body;
-    const box = $('#box'), fb = $('#fb'), el = $('#stg');
+    const box = $('#box'), fb = $('#fb'); let el = $('#stg'); fitSvg(el);
     const paint = () => box.innerHTML = val || '&nbsp;';
     app.querySelectorAll('[data-u]').forEach(b => b.onclick = () => { unitSel = b.dataset.u; app.querySelectorAll('[data-u]').forEach(x => x.classList.toggle('sel', x === b)); });
-    $('#wbtn').onclick = () => { const w = $('#write'); w.style.display = w.style.display === 'none' ? '' : 'none'; if (w.style.display === '') w.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
     app.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
       if (finished) return; const k = b.dataset.k;
       if (k === '⌫') val = val.slice(0, -1); else if (k === '.') { if (!val.includes('.')) val += val ? '.' : '0.'; }
       else if (k === 'ok') return check(); else if (val.length < 7) val += k;
       paint();
     });
+    const hint = () => { if (p.d && el) { p.tr ? trace(el) : p.d.hint(el); } };
     function check() {
       if (!val) { box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake'); return; }
       if (p.word && !unitSel) { fb.className = 'fb bad'; fb.textContent = 'Pick a unit 👆'; return; }
       const numOk = Math.abs(parseFloat(val) - p.ans) < 0.011, unitOk = !p.word || unitSel === p.unit;
       tries++;
-      if (numOk && unitOk) {
-        finished = true; fb.className = 'fb ok'; fb.innerHTML = tries === 1 ? '<span>Yes!</span>' : '<span>✓ Got it!</span>'; grade(tries === 1); flutter(fb);
-        if (p.d && el) { p.tr ? trace(el) : p.d.hint(el); }
-        showSol(); return;
-      }
+      if (numOk && unitOk) { finished = true; fb.className = 'fb ok'; fb.innerHTML = tries === 1 ? '<span>Yes!</span>' : '<span>✓ Got it!</span>'; grade(tries === 1); flutter(fb); hint(); fillIn(); return; }
       box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
       if (tries === 1) {
-        fb.className = 'fb bad'; fb.innerHTML = (numOk && !unitOk) ? 'Number ✓ — check the unit! (around = ft, inside = ft²)' : 'Not yet — watch 👀';
-        if (p.d && el) { el.innerHTML = p.d.svg; p.tr ? trace(el) : p.d.hint(el); }
-        $('#write').style.display = ''; val = ''; paint();
-      } else { finished = true; fb.className = 'fb bad'; fb.innerHTML = `Answer: ${fmt(p.ans)} ${p.unit}`; grade(false); showSol(); }
+        fb.className = 'fb bad'; fb.innerHTML = (numOk && !unitOk) ? 'Number ✓ — check the unit!' : 'Not yet — watch 👀';
+        if (p.d && el) { el.innerHTML = p.d.svg; fitSvg(el); hint(); }
+        val = ''; paint();
+      } else { finished = true; fb.className = 'fb bad'; fb.innerHTML = `Answer: ${fmt(p.ans)} ${p.unit}`; grade(false); fillIn(); }
     }
-    function showSol() {
-      const w = $('#write'); w.style.display = ''; w.innerHTML = `✏️ <b>${p.sol}</b><br><span style="font-size:14px;opacity:.8">${p.formula}</span>`;
+    function fillIn() {
+      $('#wbody').innerHTML = writeBox(p, true); $('#write').classList.add('filled');
       $('#padwrap').style.display = 'none'; const n = $('#nextq'); n.style.display = ''; n.onclick = () => { q++; next(); };
     }
   }
-  function grade(firstTry, sortMode) {
-    res.push(firstTry); if (firstTry) { score++; const m = isTest ? null : mode; if (m) { S.stars[m] = starsOf(m) + 1; save(); } else { S.stars.test = starsOf('test') + 1; save(); } refreshStars(); }
+  function grade(firstTry) {
+    res.push(firstTry); if (firstTry) { score++; const m = isTest ? 'test' : mode; S.stars[m] = starsOf(m) + 1; save(); refreshStars(); }
   }
   function done() {
     if (isTest && score > S.best) { S.best = score; save(); }
@@ -518,8 +670,5 @@ function tick() {
 
 /* ---------- start ---------- */
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-const hs = location.hash.slice(1);
-if (hs.startsWith('learn')) go(learn, +(hs.split('-')[1] || 0));
-else if (hs.startsWith('p-')) go(practice, hs.slice(2));
-else if (hs === 'cheat') go(cheat); else if (hs === 'videos') go(videos);
-else go(home);
+routeFromHash();
+window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== CUR) routeFromHash(); });
