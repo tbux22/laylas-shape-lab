@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#fffaf7">
+<title>Layla's Shape Lab</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="bf" viewBox="0 0 48 40">
+    <path d="M24 19 C19 5 7 1 3.5 7.5 C0.5 14 8 21.5 24 21 Z" fill="var(--bf1)"/>
+    <path d="M24 19 C29 5 41 1 44.5 7.5 C47.5 14 40 21.5 24 21 Z" fill="var(--bf1)"/>
+    <path d="M24 21.5 C15 22 6.5 27 8.5 33.5 C10.5 39 19 34 24 24 Z" fill="var(--bf2)"/>
+    <path d="M24 21.5 C33 22 41.5 27 39.5 33.5 C37.5 39 29 34 24 24 Z" fill="var(--bf2)"/>
+    <circle cx="10" cy="10" r="2.3" fill="#fff" opacity=".65"/><circle cx="38" cy="10" r="2.3" fill="#fff" opacity=".65"/>
+    <circle cx="14" cy="30" r="1.6" fill="#fff" opacity=".6"/><circle cx="34" cy="30" r="1.6" fill="#fff" opacity=".6"/>
+    <ellipse cx="24" cy="23" rx="1.7" ry="9" fill="var(--bfb)"/>
+    <path d="M23.4 14.5 C22 9.5 20 7 17.5 6 M24.6 14.5 C26 9.5 28 7 30.5 6" stroke="var(--bfb)" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  </symbol>
+</svg>
+<svg class="corner a" aria-hidden="true"><use href="#bf"/></svg>
+<svg class="corner b" aria-hidden="true"><use href="#bf"/></svg>
+<header id="top">
+  <button id="homeBtn" class="icon-btn" aria-label="Home">⌂</button>
+  <h1 id="title"><svg class="bf" aria-hidden="true"><use href="#bf"/></svg>Layla's Shape Lab</h1>
+  <div id="starCount" aria-label="stars"><svg class="bf" aria-hidden="true"><use href="#bf"/></svg><span id="starNum">0</span></div>
+</header>
+<main id="app"></main>
+<div class="deco" aria-hidden="true"><svg class="bf"><use href="#bf"/></svg><svg class="bf"><use href="#bf"/></svg><svg class="bf"><use href="#bf"/></svg></div>
+<canvas id="confetti"></canvas>
+<script src="app.js"></script>
+</body>
+</html>
