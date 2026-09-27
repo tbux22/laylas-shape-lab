@@ -179,3 +179,23 @@ svg text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-w
 .dad{min-height:36px}
 /* refined title (older-kid look) */
 header h1{font-family:"Playfair Display",Georgia,"Times New Roman",serif;font-weight:600;font-size:21px;letter-spacing:.2px}
+/* ---- round 4 ---- */
+.steps{display:flex;flex-direction:column;gap:8px;margin:6px 0}
+.stepb{display:flex;align-items:center;gap:10px;text-align:left;min-height:52px;padding:8px 12px;border:1.5px solid var(--line);border-radius:14px;background:#fff;font:inherit;font-size:18px;font-weight:700;color:var(--ink)}
+.stepb .sn{flex:0 0 26px;height:26px;border-radius:50%;background:var(--blush);color:var(--rosedk);font-size:14px;display:flex;align-items:center;justify-content:center}
+.stepb.wrong{border-color:#d0455f;background:#fff1f3;text-decoration:line-through;text-decoration-color:#d0455f}
+.stepb.fine,.optb.fine{opacity:.45}
+.optg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}
+.optb{font-size:18px;min-height:52px;padding:6px 8px}
+.optb.right{border-color:var(--ok);background:#effaf6;color:#0a7d55}
+.fixbox{background:#f3fbf9;border:1px solid #cfeee8;border-radius:14px;padding:10px 12px;margin:6px 0}
+.fixbox .why{font-size:15.5px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.fixl{font-size:17px;font-weight:800;color:#0a7d74;overflow-wrap:anywhere}
+.pre{background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px 12px;margin:8px 0}
+.preq{font-size:16px;font-weight:800;color:var(--rosedk)}
+.pre .optb{font-size:15px}
+.premsg{font-size:15px;font-weight:700;min-height:20px}
+.premsg.ok{color:var(--ok)} .premsg.bad{color:#b0563a}
+#solve.gated{display:none}
+.check{margin:0;padding:12px 12px 12px 34px;font-size:16px;line-height:1.55}
+.check li{margin:2px 0}

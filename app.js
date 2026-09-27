@@ -192,7 +192,7 @@ function drawHouse(W, H, r, u) {
   const rect = [[0, r], [W, r], [W, r + H], [0, r + H]].map(M.P), tri = [[0, r], [W / 2, 0], [W, r]].map(M.P);
   const apex = M.P([W / 2, 0]), foot = M.P([W / 2, r]), cr = cen(rect), ct = cen(tri);
   let s = `<polygon class="fillA" points="${ptsStr(P)}"/>`;
-  s += `<g class="pieces fade hide"><polygon points="${ptsStr(rect)}" fill="#f6a9c4"/><polygon points="${ptsStr(tri)}" fill="#fcdbe6"/>${txt(cr[0], cr[1] + 14, fmt(W * H), 'big')}${txt(tri[2][0] + 10, (tri[0][1] + tri[1][1]) / 2, '= ' + fmt(W * r / 2), 'pc', 'start')}</g>`;
+  s += `<g class="pieces fade hide"><polygon points="${ptsStr(rect)}" fill="#f6a9c4"/><polygon points="${ptsStr(tri)}" fill="#fcdbe6"/>${txt(cr[0], cr[1] + 14, fmt(W * H), 'big')}${txt(tri[0][0] - 8, (tri[0][1] + tri[1][1]) / 2 + 16, '= ' + fmt(W * r / 2), 'pc', 'end')}</g>`;
   s += `<polygon class="edge" points="${ptsStr(P)}"/>`;
   s += `<line class="hline" x1="${apex[0]}" y1="${apex[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(apex[0] + 8, (apex[1] + foot[1]) / 2 + 3, `h = ${fmt(r)} ${u}`, 'h', 'start');
   s += `<line x1="${rect[0][0]}" y1="${rect[0][1]}" x2="${rect[1][0]}" y2="${rect[1][1]}" stroke="#c2416e" stroke-width="2" stroke-dasharray="4 4"/>`;
@@ -326,7 +326,13 @@ const GEN = {
     return { word: true, scene: e, text: t, ask: '', ans, unit, units, lines, note: 'Around → P (units) · Cover inside → A (units²)', d: null };
   },
   coord(lv) {
-    const kind = pick(['rect', 'rect', 'tri']);
+    const kind = pick(lv > 1 ? ['rect', 'tri', 'slant', 'slant'] : ['rect', 'rect', 'tri', 'slant']);
+    if (kind === 'slant') { const w = R(4, 7), h = R(4, 7), pp = R(1, h - 1), qq = R(1, w - 1), x1 = R(0, 1), y1 = R(0, 1);
+      const pts = [[x1, y1], [x1 + w, y1 + pp], [x1 + qq, y1 + h]]; const d0 = drawCoord(pts, []);
+      const X = d0.X, Y = d0.Y, box = `<rect x="${X(x1)}" y="${Y(y1 + h)}" width="${X(x1 + w) - X(x1)}" height="${Y(y1) - Y(y1 + h)}" fill="none" stroke="#c2416e" stroke-width="2" stroke-dasharray="6 5"/>`;
+      const d = { svg: d0.svg.replace('</svg>', box + '</svg>'), hint() {} };
+      const t1 = w * pp / 2, t2 = (w - qq) * (h - pp) / 2, t3 = qq * h / 2, A = w * h - t1 - t2 - t3;
+      return { d, ask: 'A = ?', sub: 'slanted sides: box − corner triangles', ans: A, unit: 'units²', lines: ['A = box − 3 corner triangles', T`box = ${w} × ${h} = ${w * h}`, T`corners = ${t1} + ${t2} + ${t3} = ${t1 + t2 + t3}`, T`A = ${w * h} − ${t1 + t2 + t3} = ${A} units²`], note: `Corners: ½ × ${w} × ${pp}, ½ × ${w - qq} × ${h - pp}, ½ × ${qq} × ${h}` }; }
     if (kind === 'rect') { const x1 = R(0, 4), y1 = R(0, 4), x2 = x1 + R(2, 6), y2 = y1 + R(2, 5), ask = pick(['A', 'P']); const w = x2 - x1, h = y2 - y1;
       const pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]; const tmp = drawCoord(pts, []);
       const d = drawCoord(pts, [[(tmp.X(x1) + tmp.X(x2)) / 2, tmp.Y(y1) + 15, `l = ${x2} − ${x1}`], [tmp.X(x2) + 8, (tmp.Y(y1) + tmp.Y(y2)) / 2, `w = ${y2} − ${y1}`, 'start']]);
@@ -345,6 +351,87 @@ const GEN = {
   }
 };
 
+/* ---------- Round 4: spot the mistake, which is the height, faded steps ---------- */
+// strip role words + colour cues so the picture itself must be read (dashed line + ⊾ stays)
+const neutral = svg => svg.replace(/<tspan[^>]*class="sm"[^>]*>[^<]*<\/tspan>/g, '').replace(/>(?:b₁|b₂|b|h|side) = /g, '>').replace(/class="lbl (?:h|s)"/g, 'class="lbl"');
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const NAMES = ['Sam', 'Maya', 'Jordan', 'Ava', 'Leo', 'Priya'];
+const SPOT = [
+  () => { const u = pick(U), t = pick(TRIPLES), b = R(t[0] + 2, t[0] + 8), h = t[1], sl = t[2];
+    return { d: drawPara(b, h, t[0], u, { slant: sl }), q: 'Find the area.', steps: ['A = b × h', T`A = ${b} × ${sl}`.f, T`A = ${b * sl} ${u}²`.f], bad: 1,
+      why: `${sl} ${u} is the slanted side. The height has the square corner ⊾: ${h} ${u}.`, fix: [T`A = ${b} × ${h} = ${b * h} ${u}²`.f], tag: 'slant used as height' }; },
+  () => { const u = pick(U), b = 2 * R(2, 8), h = R(3, 11), a = R(1, b - 1), v = Math.random() < .5;
+    return { d: drawTri(b, h, a, u, { noCopy: true }), q: 'Find the area.', steps: v ? ['A = b × h', T`A = ${b} × ${h}`.f, T`A = ${b * h} ${u}²`.f] : ['A = ½ × b × h', T`A = ${b} × ${h}`.f, T`A = ${b * h} ${u}²`.f], bad: v ? 0 : 1,
+      why: 'A triangle is half of a parallelogram — it needs the ½ (÷ 2).', fix: [T`A = ½ × ${b} × ${h} = ${b * h / 2} ${u}²`.f], tag: 'forgot ½' }; },
+  () => { const u = pick(U), t = pick(TRIPLES), b = R(t[0] + 2, t[0] + 8), h = t[1];
+    return { d: drawPara(b, h, t[0], u, { slant: t[2] }), q: 'Find the area.', steps: ['A = b × h', T`A = ${b} × ${h}`.f, T`A = ${b * h} ${u}`.f], bad: 2,
+      why: `Area covers the inside, so it needs square units: ${u}².`, fix: [T`A = ${b * h} ${u}²`.f], tag: 'units vs square units' }; },
+  () => { const u = pick(U), t = pick(TRI_SETS.filter(x => x[0] > 0)), [a, b, h, sL, sR] = t;
+    return { d: drawTri(b, h, a, u, { sL, sR, noCopy: true, perim: true }), q: 'Find the perimeter.', steps: ['P = add the 3 sides', T`P = ${b} + ${sL} + ${sR}`.f, T`P = ${b + sL + sR} ${u}²`.f], bad: 2,
+      why: `Perimeter is a length around the edge — plain units (${u}), not ${u}².`, fix: [T`P = ${b + sL + sR} ${u}`.f], tag: 'units vs square units' }; },
+  () => { const u = pick(U), W = R(6, 12), H = R(5, 10), cw = R(2, W - 3), ch = R(2, H - 3);
+    const sides = [W - cw, ch, cw, H - ch, W, H], k = R(0, 3), sam = sides.filter((_, i) => i !== k), tot = 2 * (W + H);
+    return { d: drawL(W, H, cw, ch, u, { labels: { 0: W - cw, 1: ch, 2: cw, 3: H - ch, 4: W, 5: H } }), q: 'Find the perimeter.', steps: ['P = add all the sides', `P = ${sam.map(fmt).join(' + ')}`, `P = ${fmt(tot - sides[k])} ${u}`], bad: 1,
+      why: `Missed the ${fmt(sides[k])} ${u} side. An L-shape has 6 sides — tick each one as you trace.`, fix: [`P = ${sides.map(fmt).join(' + ')} = ${fmt(tot)} ${u}`], tag: 'missed a side' }; },
+  () => { const u = pick(U), W = R(6, 12), H = R(5, 10), cw = R(2, W - 3), ch = R(2, H - 3);
+    const sides = [W - cw, ch, cw, H - ch, W, H], tot = 2 * (W + H);
+    return { d: drawL(W, H, cw, ch, u, { pieces: true, labels: { 0: W - cw, 1: ch, 2: cw, 3: H - ch, 4: W, 5: H } }), q: 'Find the perimeter.', steps: ['P = add all the sides', `P = ${sides.map(fmt).join(' + ')} + ${fmt(H - ch)}`, `P = ${fmt(tot + H - ch)} ${u}`], bad: 1,
+      why: 'The dashed line is inside the shape. The fence only goes around the outside.', fix: [`P = ${sides.map(fmt).join(' + ')} = ${fmt(tot)} ${u}`], tag: 'counted an inside line' }; },
+  () => { const [a, c, hyp] = pick([[3, 4, 5], [4, 3, 5], [6, 8, 10], [8, 6, 10]]), x1 = R(0, 1), y1 = R(0, 1);
+    const pts = [[x1, y1], [x1 + a, y1], [x1, y1 + c]], sam = Math.max(a, c);
+    return { d: drawCoord(pts, []), q: 'Find the perimeter.', steps: [T`legs: ${a} and ${c}`.f, T`slanted side = ${sam} (counted squares)`.f, T`P = ${a} + ${c} + ${sam} = ${a + c + sam} units`.f], bad: 1,
+      why: `You can't count squares along a slanted side — each diagonal is longer than 1. Here it is ${hyp} units.`, fix: [T`P = ${a} + ${c} + ${hyp} = ${a + c + hyp} units`.f], tag: 'grid diagonal counted as 1' }; },
+  () => { const u = pick(U), h = 2 * R(2, 5), b2 = R(2, 8), b1 = b2 + R(2, 8), x = R(0, b1 - b2);
+    return { d: drawTrap(b1, b2, h, x, u, { noCopy: true }), q: 'Find the area.', steps: ['A = ½ × (b₁ + b₂) × h', T`A = (${b1} + ${b2}) × ${h}`.f, T`A = ${(b1 + b2) * h} ${u}²`.f], bad: 1,
+      why: 'Adding the two parallel sides is right — then cut it in half (½ or ÷ 2).', fix: [T`A = ½ × (${b1} + ${b2}) × ${h} = ${(b1 + b2) * h / 2} ${u}²`.f], tag: 'trapezoid forgot ½' }; },
+  () => { const u = pick(U), [a, b, h, sL, sR] = pick(TRI_SETS.filter(x => x[0] > 0 && x[2] !== x[3]));
+    return { d: drawTri(b, h, a, u, { sL, sR, noCopy: true }), q: 'Find the perimeter.', steps: ['P = add the 3 sides', T`P = ${b} + ${h} + ${sR}`.f, T`P = ${b + h + sR} ${u}`.f], bad: 1,
+      why: `${h} ${u} is the height — it is inside, not a side. Use ${sL} ${u} and ${sR} ${u}.`, fix: [T`P = ${b} + ${sL} + ${sR} = ${b + sL + sR} ${u}`.f], tag: 'height added to perimeter' }; },
+  () => { const u = pick(U), [a, b, h, sL, sR] = pick(TRI_SETS.filter(x => x[0] < 0));
+    return { d: drawTri(b, h, a, u, { sL, sR, noCopy: true }), q: 'Find the area.', steps: ['A = ½ × b × h', T`A = ½ × ${b} × ${sL}`.f, T`A = ${b * sL / 2} ${u}²`.f], bad: 1,
+      why: `${sL} ${u} is a slanted side. The height is outside the triangle (dashed, ⊾): ${h} ${u}.`, fix: [T`A = ½ × ${b} × ${h} = ${b * h / 2} ${u}²`.f], tag: 'slant used as height (obtuse)' }; },
+];
+GEN.spot = () => { const s = pick(SPOT)(); return { tap: true, spot: true, who: pick(NAMES), d: { svg: neutral(s.d.svg), hint() {} }, q: s.q, steps: s.steps, ans: String(s.bad), why: s.why, fix: s.fix, tag: s.tag }; };
+
+GEN.height = () => {
+  for (let tries = 0; tries < 30; tries++) {
+    const u = pick(U), kind = pick(['para', 'tri', 'tri', 'trap', 'obtuse']); let d, h, vals, area;
+    if (kind === 'para') { const t = pick(TRIPLES), b = R(t[0] + 2, t[0] + 8); h = t[1]; d = drawPara(b, h, t[0], u, { slant: t[2], showTop: Math.random() < .5 }); vals = [b, t[2], h]; area = T`A = b × h = ${b} × ${h} = ${b * h} ${u}²`.f; }
+    else if (kind === 'tri' || kind === 'obtuse') { const [a, b, hh, sL, sR] = pick(TRI_SETS.filter(x => kind === 'obtuse' ? x[0] < 0 : x[0] > 0)); h = hh; d = drawTri(b, h, a, u, { sL, sR, noCopy: true }); vals = [b, sL, sR, h]; area = T`A = ½ × b × h = ½ × ${b} × ${h} = ${b * h / 2} ${u}²`.f; }
+    else { const L = pick([[3, 4, 3, 5, 5], [5, 12, 9, 13, 15], [6, 8, 6, 10, 10], [9, 12, 5, 15, 13]]), b2 = R(3, 9), b1 = L[0] + b2 + L[2]; h = L[1]; d = drawTrap(b1, b2, h, L[0], u, { l1: L[3], l2: L[4], noCopy: true }); vals = [b1, b2, L[3], L[4], h]; area = T`A = ½ × (${b1} + ${b2}) × ${h} = ${(b1 + b2) * h / 2} ${u}²`.f; }
+    if (vals.filter(v => v === h).length > 1) continue; // height value must be unique
+    const opts = shuffle([...new Set(vals)]).map(v => ({ k: String(v), label: `${fmt(v)} ${u}` }));
+    return { tap: true, choice: true, d: { svg: neutral(d.svg), hint() {} }, q: 'Which length is the height?', opts, ans: String(h), unit: u, h, kind,
+      why: `${fmt(h)} ${u} is the height — it meets the base at a square corner ⊾${kind === 'obtuse' ? ' (outside the triangle)' : ''}. Slanted sides are for perimeter only.`, fix: [area] };
+  }
+  return GEN.height();
+};
+// "worked → your turn": split long lines so steps can fade one at a time
+function splitLines(lines) {
+  const [f, ...rest] = lines, out = [f];
+  rest.forEach(l => { if (typeof l === 'string') { out.push(l); return; }
+    const F = l.f.split(' = '), B = l.b.split(' = ');
+    if (F.length > 2 && F.length === B.length) { out.push({ f: F.slice(0, 2).join(' = '), b: B.slice(0, 2).join(' = ') }); for (let i = 2; i < F.length; i++) out.push({ f: '= ' + F[i], b: '= ' + B[i] }); }
+    else out.push(l); });
+  return out;
+}
+GEN.faded = (lv, q = 0) => { const p = GEN[pick(['para', 'tri', 'trap', 'comp'])](lv); p.lines = splitLines(p.lines); const n = p.lines.length - 1;
+  p.fade = q < 3 ? n : q < 6 ? n - 1 : 0; p.fadeStage = q < 3 ? 'Worked example — read each step, then type the answer' : q < 6 ? 'Finish the last step' : 'Your turn — whole thing'; return p; };
+// plan-first on composite shapes, estimate-first on triangles/trapezoids
+function addPre(p, m) {
+  if (m === 'comp') { const sub = /cut-out/.test(p.sub || ''), both = /Piece 1 \+ Piece 2/.test(p.sub || '');
+    p.pre = { q: 'Plan first: how will you find the area?', opts: [{ k: 'split', label: '➕ Split into pieces' }, { k: 'sub', label: '➖ Big shape − cut-out' }], ok: both ? ['split', 'sub'] : [sub ? 'sub' : 'split'],
+      msg: both ? 'Both plans work on an L-shape. Here we split.' : sub ? 'Subtract: big rectangle − the cut-out.' : 'Split: rectangle + triangle, then add.' }; }
+  if ((m === 'tri' || m === 'trap') && Math.random() < .4) {
+    const m2 = m;
+    const bh = m2 === 'tri' ? p.ans * 2 : null;
+    if (m2 === 'tri') p.pre = { q: `Estimate first: the rectangle around it is ${fmt(bh)} ${p.unit}. The triangle is…`, opts: shuffle([{ k: 'same', label: `about ${fmt(bh)}` }, { k: 'half', label: `about half: ${fmt(bh / 2)}` }, { k: 'double', label: `about double: ${fmt(bh * 2)}` }]), ok: ['half'], msg: 'Half of the rectangle → that is the ½.' };
+    else { const mm = (p.lines[1].f.match(/\(([\d.]+) \+ ([\d.]+)\) × ([\d.]+)/) || []); if (mm.length) { const b1 = +mm[1], b2 = +mm[2], h = +mm[3], lo = Math.min(b1, b2) * h, hi = Math.max(b1, b2) * h;
+      p.pre = { q: `Estimate first: small base × h = ${fmt(lo)}, big base × h = ${fmt(hi)}. The trapezoid is…`, opts: shuffle([{ k: 'lo', label: `less than ${fmt(lo)}` }, { k: 'mid', label: `between ${fmt(lo)} and ${fmt(hi)}` }, { k: 'hi', label: `more than ${fmt(hi)}` }]), ok: ['mid'], msg: 'It sits between the two rectangles.' }; } }
+  }
+  return p;
+}
+
 const MODES = [
   { id: 'sort', name: 'Area or Perimeter?', ico: '🤔', gen: 'sort' },
   { id: 'warm', name: 'Warm-up grid', ico: '🔲', gen: 'warm' },
@@ -356,12 +443,16 @@ const MODES = [
   { id: 'rev', name: 'Backwards (find h)', ico: '🔄', gen: 'rev' },
   { id: 'word', name: 'Word problems', ico: '📝', gen: 'word' },
   { id: 'coord', name: 'Coordinate grid', ico: '📍', gen: 'coord' },
+  { id: 'spot', name: 'Spot the mistake', ico: '🔍', gen: 'spot' },
+  { id: 'height', name: 'Which is the height?', ico: 'height', gen: 'height' },
+  { id: 'faded', name: 'Worked → your turn', ico: '🪜', gen: 'faded' },
 ];
 const MINI = {
   para: '<svg viewBox="0 0 70 48"><polygon points="18,8 64,8 52,40 6,40" fill="#fcdbe6" stroke="#d99aae" stroke-width="2"/><line x1="18" y1="8" x2="18" y2="40" stroke="#6d28d9" stroke-width="2" stroke-dasharray="4 3"/></svg>',
   tri: '<svg viewBox="0 0 70 48"><polygon points="24,6 62,42 8,42" fill="#fcdbe6" stroke="#d99aae" stroke-width="2"/><line x1="24" y1="6" x2="24" y2="42" stroke="#6d28d9" stroke-width="2" stroke-dasharray="4 3"/></svg>',
   trap: '<svg viewBox="0 0 70 48"><polygon points="20,8 46,8 64,42 6,42" fill="#fcdbe6" stroke="#d99aae" stroke-width="2"/><line x1="20" y1="8" x2="20" y2="42" stroke="#6d28d9" stroke-width="2" stroke-dasharray="4 3"/></svg>',
   comp: '<svg viewBox="0 0 70 48"><polygon points="8,6 34,6 34,22 62,22 62,42 8,42" fill="#fcdbe6" stroke="#d99aae" stroke-width="2"/><line x1="34" y1="22" x2="34" y2="42" stroke="#c2416e" stroke-width="2" stroke-dasharray="3 3"/></svg>',
+  height: '<svg viewBox="0 0 70 48"><polygon points="30,6 64,42 8,42" fill="#fff" stroke="#d99aae" stroke-width="2"/><line x1="30" y1="6" x2="30" y2="42" stroke="#6d28d9" stroke-width="2.5" stroke-dasharray="4 3"/><path d="M30,36 h6 v6" fill="none" stroke="#6d28d9" stroke-width="1.6"/></svg>',
   perim: '<svg viewBox="0 0 70 48"><polygon points="8,6 34,6 34,22 62,22 62,42 8,42" fill="#fff" stroke="#14a89c" stroke-width="5" stroke-linejoin="round"/></svg>',
 };
 
@@ -370,7 +461,7 @@ const app = $('#app');
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 /* ----- hash deep links (#practice-triangle, #learn-parallelogram, ...) ----- */
 const SITE_URL = 'https://tbux22.github.io/laylas-shape-lab/';
-const P_SLUG = { sort: 'area-or-perimeter', warm: 'warmup', para: 'parallelogram', tri: 'triangle', trap: 'trapezoid', comp: 'weird-shapes', perim: 'perimeter', rev: 'backwards', word: 'word-problems', coord: 'coordinates', test: 'test' };
+const P_SLUG = { sort: 'area-or-perimeter', warm: 'warmup', para: 'parallelogram', tri: 'triangle', trap: 'trapezoid', comp: 'weird-shapes', perim: 'perimeter', rev: 'backwards', word: 'word-problems', coord: 'coordinates', spot: 'spot-mistake', height: 'find-height', faded: 'worked-steps', test: 'test' };
 const L_SLUG = ['area-vs-perimeter', 'parallelogram', 'height', 'triangle', 'height-outside', 'trapezoid', 'weird-shapes'];
 let CUR = 'home';
 function slugFor(fn, a) {
@@ -378,6 +469,7 @@ function slugFor(fn, a) {
   if (fn === learn) return 'learn-' + (L_SLUG[a] || L_SLUG[0]);
   if (fn === cheat) return 'cheat-sheet';
   if (fn === videos) return 'videos';
+  if (fn === lean) return 'lean';
   return 'home';
 }
 function routeFromHash() {
@@ -389,6 +481,7 @@ function routeFromHash() {
   if ((m = h.match(/^p-(.+)$/)) && P_SLUG[m[1]]) return go(practice, m[1]);   // old links
   if (h === 'cheat-sheet' || h === 'cheat') return go(cheat);
   if (h === 'videos') return go(videos);
+  if (h === 'lean') return go(lean);
   go(home);
 }
 function dadHref() {
@@ -423,6 +516,8 @@ function home() {
     <div class="grid">
       <button class="tile" id="cheat"><span class="ico">🧠</span>Cheat sheet</button>
       <button class="tile" id="vids"><span class="ico">🎬</span>Videos</button>
+      <button class="tile" id="leanb"><span class="ico">↔️</span>Lean it</button>
+      <a class="tile" href="study-pack.pdf" style="text-decoration:none"><span class="ico">📝</span>Study pack</a>
       <a class="tile" href="worksheet.pdf" style="text-decoration:none"><span class="ico">🖨️</span>Worksheet</a>
       <button class="tile" id="reset"><span class="ico">↺</span>Reset stars</button>
     </div>`;
@@ -431,6 +526,7 @@ function home() {
   $('#test').onclick = () => go(practice, 'test');
   $('#cheat').onclick = () => go(cheat);
   $('#vids').onclick = () => go(videos);
+  $('#leanb').onclick = () => go(lean);
   $('#reset').onclick = () => { if (confirm('Reset all stars?')) { S = { stars: {}, best: 0 }; save(); go(home); } };
 }
 
@@ -543,25 +639,43 @@ function learn(i) {
 /* ----- Practice ----- */
 function practice(mode) {
   const isTest = mode === 'test', N = isTest ? 10 : 8; let q = 0, score = 0; const res = [];
-  const testPool = ['para', 'tri', 'trap', 'comp', 'perim', 'rev', 'word', 'sort', 'coord', 'tri', 'para', 'comp'];
+  const testPool = ['para', 'tri', 'trap', 'comp', 'perim', 'rev', 'word', 'sort', 'coord', 'spot', 'height', 'tri', 'comp', 'spot'];
   const order = isTest ? testPool.sort(() => Math.random() - .5).slice(0, N) : null;
   function next() {
     TOKEN++; hush();
     if (q >= N) return done();
-    const m = isTest ? order[q] : mode; const p = GEN[MODES.find(x => x.id === m).gen](level(m)); p.m = m; showP(p);
+    const m = isTest ? order[q] : mode; const p = addPre(GEN[MODES.find(x => x.id === m).gen](level(m), q), m); p.m = m; showP(p);
   }
   function pips() { return `<div class="pips">${Array.from({ length: N }, (_, k) => `<i class="${k < res.length ? (res[k] ? 'on' : 'x') : ''}"></i>`).join('')}</div>`; }
   function writeBox(p, filled) {
     const [f, ...rest] = p.lines;
     const cls = p.perim ? 'p' : 'a';
     if (filled && p.after) return `<div class="fline ${cls}">${lineF(f)}</div><div class="after" style="border:0;margin:0;padding:0">${p.after.map(x => `<div>${x}</div>`).join('')}</div>`;
-    return `<div class="fline ${cls}">${lineF(f)}</div>${rest.map(l => `<div class="wl">${filled ? lineF(l) : lineB(l)}</div>`).join('')}${filled && p.note ? `<div class="wnote">${p.note}</div>` : ''}${filled && p.after ? `<div class="after">${p.after.map(x => `<div>${x}</div>`).join('')}</div>` : ''}`;
+    return `${!filled && p.fadeStage ? `<div class="wnote">${p.fadeStage}</div>` : ''}<div class="fline ${cls}">${lineF(f)}</div>${rest.map((l, i) => `<div class="wl">${filled || i < (p.fade || 0) ? lineF(l) : lineB(l)}</div>`).join('')}${filled && p.note ? `<div class="wnote">${p.note}</div>` : ''}${filled && p.after ? `<div class="after">${p.after.map(x => `<div>${x}</div>`).join('')}</div>` : ''}`;
   }
   function showP(p) {
     window.__p = p; // (used by automated tests only)
     let tries = 0, val = '', unitSel = null, finished = false;
     const head = isTest ? '🎯 Test' : MODES.find(x => x.id === mode).name;
     let body = `<div class="phead"><b>${head}</b><span>${q + 1}/${N}</span></div>${pips()}`;
+    if (p.tap) {
+      const fixHtml = () => `<div class="fixbox"><div class="why">${p.why}</div>${p.fix.map(f => `<div class="fixl">✓ ${f}</div>`).join('')}</div>`;
+      body += `<div class="card"><div id="stg">${p.d.svg}</div></div>`;
+      if (p.spot) body += `<div class="q">${p.who}'s work <small>${p.q} Tap the step with the mistake.</small></div><div class="steps">${p.steps.map((st, i) => `<button class="stepb" data-c="${i}"><span class="sn">${i + 1}</span>${st}</button>`).join('')}</div>`;
+      else body += `<div class="q">${p.q}<small>look for the square corner ⊾</small></div><div class="optg">${p.opts.map(o => `<button class="btn optb" data-c="${o.k}">${o.label}</button>`).join('')}</div>`;
+      body += `<div class="fb" id="fb"></div><div id="fix"></div><div class="row"><button class="btn pink" id="nextq" style="display:none">Next ▶</button></div>`;
+      app.innerHTML = body; fitSvg($('#stg'));
+      app.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
+        if (finished) return; const ok = b.dataset.c === p.ans; tries++;
+        if (ok || tries >= 2) { finished = true; grade(ok && tries === 1);
+          app.querySelectorAll('[data-c]').forEach(x => { if (x.dataset.c === p.ans) x.classList.add(p.spot ? 'wrong' : 'right'); });
+          $('#fb').className = 'fb ' + (ok ? 'ok' : 'bad'); $('#fb').innerHTML = ok ? (tries === 1 ? '<span>Found it!</span>' : '<span>✓ Got it</span>') : (p.spot ? 'This was the mistake 👆' : 'This one 👆');
+          if (ok && tries === 1) flutter($('#fb'));
+          $('#fix').innerHTML = fixHtml(); const n = $('#nextq'); n.style.display = ''; n.onclick = () => { q++; next(); }; }
+        else { b.classList.add('fine'); b.disabled = true; $('#fb').className = 'fb bad'; $('#fb').innerHTML = p.spot ? 'That step is OK — look again' : 'Not that one — find the square corner ⊾'; }
+      });
+      return;
+    }
     if (p.sort) {
       body += `<div class="card"><div class="scene">${p.scene}</div><div class="scenetxt">${p.text}</div></div>
       <div class="write"><div class="wl"><span class="p" style="font-weight:800">Perimeter</span> = around the edge → units</div><div class="wl"><b>Area</b> = covers the inside → units²</div></div>
@@ -575,14 +689,19 @@ function practice(mode) {
     }
     if (p.word) body += `<div class="card"><div class="scene">${p.scene}</div><div class="scenetxt" style="font-size:18px">${p.text}</div></div>`;
     else body += `<div class="card"><div id="stg">${p.d.svg}</div></div>`;
-    body += `<div class="write" id="write"><div class="wt">✏️ Write it on paper:</div><div id="wbody">${writeBox(p, false)}</div></div>
+    if (p.pre) body += `<div class="pre" id="pre"><div class="preq">${p.pre.q}</div><div class="optg">${p.pre.opts.map(o => `<button class="btn optb" data-plan="${o.k}">${o.label}</button>`).join('')}</div><div class="premsg" id="premsg"></div></div>`;
+    body += `<div id="solve"${p.pre ? ' class="gated"' : ''}><div class="write" id="write"><div class="wt">✏️ Write it on paper:</div><div id="wbody">${writeBox(p, false)}</div></div>
       <div class="q">${p.word ? '' : p.ask}${p.sub ? `<small>${p.sub}</small>` : ''}</div>
       <div class="ans"><div class="box" id="box">&nbsp;</div>${p.word ? p.units.map(u => `<button class="btn ubtn" data-u="${u}">${u}</button>`).join('') : `<span class="unit">${p.unit}</span>`}</div>
       <div class="fb" id="fb"></div>
       <div id="padwrap"><div class="keypad">${['7', '8', '9', '⌫', '4', '5', '6', '.', '1', '2', '3', '0'].map(k => `<button data-k="${k}" class="${k === '⌫' ? 'del' : ''}">${k}</button>`).join('')}<button class="go" data-k="ok" style="grid-column:span 4">✓ Check</button></div></div>
-      <div class="row"><button class="btn pink" id="nextq" style="display:none">Next ▶</button></div>`;
+      <div class="row"><button class="btn pink" id="nextq" style="display:none">Next ▶</button></div></div>`;
     app.innerHTML = body;
     const box = $('#box'), fb = $('#fb'); let el = $('#stg'); fitSvg(el);
+    if (p.pre) app.querySelectorAll('[data-plan]').forEach(b => b.onclick = () => {
+      const ok = p.pre.ok.includes(b.dataset.plan); app.querySelectorAll('[data-plan]').forEach(x => { x.disabled = true; x.classList.toggle('right', p.pre.ok.includes(x.dataset.plan)); });
+      $('#premsg').innerHTML = (ok ? '✓ ' : 'Better: ') + p.pre.msg; $('#premsg').className = 'premsg ' + (ok ? 'ok' : 'bad');
+      $('#solve').classList.remove('gated'); });
     const paint = () => box.innerHTML = val || '&nbsp;';
     app.querySelectorAll('[data-u]').forEach(b => b.onclick = () => { unitSel = b.dataset.u; app.querySelectorAll('[data-u]').forEach(x => x.classList.toggle('sel', x === b)); });
     app.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
@@ -636,7 +755,31 @@ function cheat() {
     ${it(MINI.comp.replace('0 0 70 48', '0 0 70 48" width="110" height="76'), '<b>Split ➕ or cut ➖</b><br>add pieces or big − hole')}
     ${it('<svg viewBox="0 0 110 76"><polygon points="34,10 100,10 76,66 10,66" fill="#fcdbe6" stroke="#d99aae" stroke-width="2"/><line x1="34" y1="10" x2="34" y2="66" stroke="#6d28d9" stroke-width="3" stroke-dasharray="6 4"/><path d="M34,56 h10 v10" fill="none" stroke="#6d28d9" stroke-width="2"/></svg>', 'Height stands up ⊾ (dashed)<br><span style="color:#7d6b75">slant side → perimeter only</span>')}
     ${it('<svg viewBox="0 0 110 76"><text x="55" y="45" font-size="26" text-anchor="middle" fill="#c2416e">12 ft²</text></svg>', 'Answer = number + unit<br>area gets the little ²')}
-  </div>`;
+  </div>
+  <div class="lh" style="margin-top:14px">✅ Exam checklist</div>
+  <ol class="check card">
+    <li><b>Fence or carpet?</b> around → P · inside → A</li>
+    <li><b>Trace the height</b> — find the square corner ⊾, ignore the slant</li>
+    <li><b>Divide by 2?</b> triangle &amp; trapezoid → ½</li>
+    <li><b>Estimate first</b> — does my answer make sense?</li>
+    <li><b>Units</b> — cm for P, cm² for A</li>
+  </ol>
+  <a class="btn pink" href="study-pack.pdf" style="display:flex;align-items:center;justify-content:center;text-decoration:none;margin-top:10px">🖨️ Study pack (brain dump + checklist)</a>`;
+}
+function lean() {
+  const b = 8, h = 5, u = 'cm';
+  app.innerHTML = `<div class="lh">↔️ Lean the triangle</div><div class="card"><div id="stg"></div></div>
+    <input type="range" id="lean" min="-6" max="14" step="1" value="3" aria-label="move the top point" style="width:100%;accent-color:#c2416e;margin:10px 0">
+    <div class="write"><div class="fline a" id="la"></div><div class="wl p" id="lp" style="color:#0a7d74;font-weight:800"></div><div class="wnote">Same base, same height → same area. The slant only changes the perimeter.</div></div>`;
+  const draw = a => { const shape = [[a, 0], [b, h], [0, h]], M = mapper([[-6, 0], [14, 0], [0, h], [b, h]], 30), P = shape.map(M.P), top = M.P([a, 0]), foot = M.P([a, h]);
+    let s = `<line x1="${M.X(-6)}" y1="${M.Y(0)}" x2="${M.X(14)}" y2="${M.Y(0)}" stroke="#e8d3da" stroke-dasharray="4 4"/>`;
+    if (a < 0) s += `<line class="ext" x1="${foot[0]}" y1="${foot[1]}" x2="${P[2][0]}" y2="${P[2][1]}"/>`; if (a > b) s += `<line class="ext" x1="${P[1][0]}" y1="${P[1][1]}" x2="${foot[0]}" y2="${foot[1]}"/>`;
+    s += `<polygon class="fillA" points="${ptsStr(P)}"/><polygon class="edge" points="${ptsStr(P)}"/><line class="hline" x1="${top[0]}" y1="${top[1]}" x2="${foot[0]}" y2="${foot[1]}"/>` + raMark(foot, 1) + txt(top[0] + 8, (top[1] + foot[1]) / 2, `h = ${h}`, 'h', 'start') + segLbl(P[1], P[2], `b = ${b}`, '', cen(P), 16);
+    $('#stg').innerHTML = svgWrap(s);
+    const sl = Math.hypot(a, h), sr = Math.hypot(b - a, h);
+    $('#la').innerHTML = `A = ½ × ${b} × ${h} = ${b * h / 2} ${u}² <small>(same!)</small>`;
+    $('#lp').innerHTML = `P = ${b} + ${sl.toFixed(1)} + ${sr.toFixed(1)} ≈ ${(b + sl + sr).toFixed(1)} ${u}`; };
+  const r = $('#lean'); r.oninput = () => draw(+r.value); draw(3);
 }
 function videos() {
   const V = [
@@ -645,6 +788,9 @@ function videos() {
     ['-_SIZw5H4dA', 'Area of a Trapezoid', 'Math with Mr. J · 6:13'],
     ['hm17lVaor0Q', 'Area of parallelograms intuition', 'Khan Academy'],
     ['loAA3TCNAvU', 'Finding area by breaking up the shape', 'Khan Academy · 5:15'],
+    ['LAXHgQwcrDc', 'Composite shape — L-shaped example', 'Math with Mr. J'],
+    ['UFMLqSJzYNc', 'Area of a Trapezium (from a rectangle)', 'Eddie Woo · cut at half the height'],
+    ['jWX9KNToIcA', 'Area of a Trapezium', 'Corbettmaths · includes a turned trapezoid'],
   ];
   app.innerHTML = `<div class="lh">🎬 Watch</div>${V.map((v, i) => `<a class="vid" href="https://www.youtube.com/watch?v=${v[0]}" target="_blank" rel="noopener"><span class="n">${i + 1}</span><span><b>${v[1]}</b><small>${v[2]}</small></span></a>`).join('')}
   <div class="sec">Extra</div>
